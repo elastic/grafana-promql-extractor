@@ -1,0 +1,28 @@
+{
+  "uid": "fx-basic",
+  "title": "Fixture: basic prometheus",
+  "schemaVersion": 39,
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Requests",
+      "datasource": { "type": "prometheus", "uid": "prom-main" },
+      "targets": [
+        { "refId": "A", "expr": "sum(rate(http_requests_total[5m]))" },
+        { "refId": "B", "expr": "http_requests_total{job=\"api-server\"}" }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Target overrides the panel datasource",
+      "datasource": { "type": "loki", "uid": "loki-main" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prom-secondary" },
+          "expr": "up{job=\"api-server\"}"
+        }
+      ]
+    }
+  ]
+}

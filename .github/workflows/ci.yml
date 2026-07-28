@@ -1,0 +1,95 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Check formatting
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "These files need gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      # The corpus tests are compiled but never run in CI: they download
+      # dashboards from grafana.com, which is not this project's to spend.
+      - name: Vet
+        run: |
+          go vet -tags=integration ./...
+          go vet -tags=corpus ./...
+
+      - name: Test
+        run: go test -race -timeout 5m ./...
+
+  integration:
+    name: Integration tests (Grafana ${{ matrix.grafana }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # A pinned release for reproducibility, plus latest to catch API drift.
+        grafana:
+          - "11.6.6"
+          - "latest"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Integration tests
+        env:
+          GRAFANA_IMAGE: grafana/grafana:${{ matrix.grafana }}
+        run: go test -tags=integration -timeout 15m -v ./integration/
+
+  scale:
+    name: Scale test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Extract 50k dashboards
+        env:
+          EXTRACTOR_SCALE_DASHBOARDS: "50000"
+        run: go test -timeout 15m -v -run TestScale ./internal/cli/
+
+  build:
+    name: Cross compile
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: build --snapshot --clean

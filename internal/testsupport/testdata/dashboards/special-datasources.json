@@ -1,0 +1,33 @@
+{
+  "uid": "fx-special",
+  "title": "Fixture: built-in datasources",
+  "schemaVersion": 39,
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Server side expression alongside a real query",
+      "datasource": { "type": "prometheus", "uid": "prom-main" },
+      "targets": [
+        { "refId": "A", "expr": "special_base_metric" },
+        {
+          "refId": "B",
+          "datasource": { "type": "__expr__", "uid": "__expr__" },
+          "expression": "$A * 2",
+          "expr": "$A * 2"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Reuses another panel's results",
+      "datasource": { "type": "datasource", "uid": "-- Dashboard --" },
+      "targets": [{ "refId": "A", "panelId": 1, "expr": "should_not_appear_dashboard_ds" }]
+    },
+    {
+      "type": "timeseries",
+      "title": "Built-in Grafana datasource",
+      "datasource": { "type": "datasource", "uid": "-- Grafana --" },
+      "targets": [{ "refId": "A", "expr": "should_not_appear_grafana_ds" }]
+    }
+  ]
+}

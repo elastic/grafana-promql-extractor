@@ -1,0 +1,53 @@
+{
+  "uid": "fx-tmplvar",
+  "title": "Fixture: datasource variables",
+  "schemaVersion": 39,
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": { "text": "Prometheus Main", "value": "prom-main" }
+      },
+      {
+        "name": "logs",
+        "type": "datasource",
+        "query": "loki",
+        "current": { "text": "Loki Main", "value": "loki-main" }
+      },
+      {
+        "name": "instance",
+        "type": "query",
+        "query": "label_values(up, instance)",
+        "datasource": { "type": "prometheus", "uid": "${datasource}" }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "String variable reference",
+      "datasource": "${datasource}",
+      "targets": [{ "refId": "A", "expr": "metric_from_string_var" }]
+    },
+    {
+      "type": "timeseries",
+      "title": "Typed object variable reference",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "targets": [{ "refId": "A", "expr": "metric_from_typed_var" }]
+    },
+    {
+      "type": "timeseries",
+      "title": "Untyped object variable reference",
+      "datasource": { "uid": "${datasource}" },
+      "targets": [{ "refId": "A", "expr": "metric_from_untyped_var" }]
+    },
+    {
+      "type": "timeseries",
+      "title": "Loki variable reference",
+      "datasource": { "uid": "$logs" },
+      "targets": [{ "refId": "A", "expr": "{app=\"api\"} |= \"error\"" }]
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "uid": "fx-cloudwatch",
+  "title": "Fixture: non-prometheus datasource",
+  "schemaVersion": 39,
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "CloudWatch, with an expr field to prove the type wins",
+      "datasource": { "type": "cloudwatch", "uid": "cw-main" },
+      "targets": [
+        {
+          "refId": "A",
+          "namespace": "AWS/EC2",
+          "metricName": "CPUUtilization",
+          "expr": "should_not_appear_cloudwatch"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Prometheus sibling",
+      "datasource": { "type": "prometheus", "uid": "prom-main" },
+      "targets": [{ "refId": "A", "expr": "cloudwatch_sibling_metric" }]
+    }
+  ]
+}

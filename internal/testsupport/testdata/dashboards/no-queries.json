@@ -1,0 +1,18 @@
+{
+  "uid": "fx-empty",
+  "title": "Fixture: dashboard without queries",
+  "schemaVersion": 39,
+  "panels": [
+    {
+      "type": "text",
+      "title": "Documentation",
+      "options": { "content": "This dashboard has no queries." }
+    },
+    {
+      "type": "row",
+      "title": "Empty row",
+      "collapsed": true,
+      "panels": []
+    }
+  ]
+}

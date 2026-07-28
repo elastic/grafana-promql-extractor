@@ -1,0 +1,4 @@
+fx-dup;sum(rate(dup_metric[5m]))
+fx-dup;sum by (job) ( rate( multiline_metric{code=~"5.."}[5m] ) )
+fx-dup;sum(commented_metric_total) - sum(commented_metric_total{plan="free"})
+fx-dup;hash_in_a_label{path="/#/dashboards"}

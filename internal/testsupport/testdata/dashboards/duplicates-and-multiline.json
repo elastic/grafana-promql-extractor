@@ -1,0 +1,39 @@
+{
+  "uid": "fx-dup",
+  "title": "Fixture: duplicate and multi-line expressions",
+  "schemaVersion": 39,
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Duplicates",
+      "datasource": { "type": "prometheus", "uid": "prom-main" },
+      "targets": [
+        { "refId": "A", "expr": "sum(rate(dup_metric[5m]))" },
+        { "refId": "B", "expr": "sum(rate(dup_metric[5m]))" },
+        { "refId": "C", "expr": "  sum(rate(dup_metric[5m]))\n" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Multi-line and empty",
+      "datasource": { "type": "prometheus", "uid": "prom-main" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (job) (\n  rate(\n    multiline_metric{code=~\"5..\"}[5m]\n  )\n)"
+        },
+        { "refId": "B", "expr": "" },
+        { "refId": "C", "expr": "   \n  " },
+        { "refId": "D" },
+        {
+          "refId": "E",
+          "expr": "sum(commented_metric_total) # only the paying customers\n  - sum(commented_metric_total{plan=\"free\"})"
+        },
+        {
+          "refId": "F",
+          "expr": "hash_in_a_label{path=\"/#/dashboards\"} # trailing comment"
+        }
+      ]
+    }
+  ]
+}

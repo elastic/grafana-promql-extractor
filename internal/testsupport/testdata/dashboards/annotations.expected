@@ -1,0 +1,4 @@
+fx-annotations;rate(annotated_requests_total[5m])
+fx-annotations;changes(kube_deployment_status_observed_generation{namespace="$namespace"}[5m]) > 0
+fx-annotations;ALERTS{alertstate="firing"}
+fx-annotations;changes(kube_pod_container_status_restarts_total[$__rate_interval]) > 0

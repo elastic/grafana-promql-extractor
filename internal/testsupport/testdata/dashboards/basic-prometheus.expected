@@ -1,0 +1,3 @@
+fx-basic;sum(rate(http_requests_total[5m]))
+fx-basic;http_requests_total{job="api-server"}
+fx-basic;up{job="api-server"}

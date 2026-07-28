@@ -1,0 +1,19 @@
+{
+  "uid": "fx-name",
+  "title": "Fixture: datasource referenced by name",
+  "schemaVersion": 27,
+  "panels": [
+    {
+      "type": "graph",
+      "title": "Legacy name reference",
+      "datasource": "Prometheus Main",
+      "targets": [{ "refId": "A", "expr": "node_load1" }]
+    },
+    {
+      "type": "graph",
+      "title": "Legacy name reference to loki",
+      "datasource": "Loki Main",
+      "targets": [{ "refId": "A", "expr": "{app=\"api\"}" }]
+    }
+  ]
+}

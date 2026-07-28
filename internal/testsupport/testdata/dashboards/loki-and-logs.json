@@ -1,0 +1,25 @@
+{
+  "uid": "fx-loki",
+  "title": "Fixture: loki queries and logs panels",
+  "schemaVersion": 39,
+  "panels": [
+    {
+      "type": "logs",
+      "title": "Logs panel, even on a prometheus datasource",
+      "datasource": { "type": "prometheus", "uid": "prom-main" },
+      "targets": [{ "refId": "A", "expr": "should_not_appear_logs_panel" }]
+    },
+    {
+      "type": "timeseries",
+      "title": "Loki query in a graph panel",
+      "datasource": { "type": "loki", "uid": "loki-main" },
+      "targets": [{ "refId": "A", "expr": "sum(rate({app=\"api\"} |= \"error\" [5m]))" }]
+    },
+    {
+      "type": "timeseries",
+      "title": "Prometheus query",
+      "datasource": { "type": "prometheus", "uid": "prom-main" },
+      "targets": [{ "refId": "A", "expr": "kept_metric" }]
+    }
+  ]
+}

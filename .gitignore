@@ -1,0 +1,11 @@
+bin/
+dist/
+
+# Community dashboards downloaded by the corpus test, plus its output
+.cache/
+
+# Default output of the extractor
+promql-queries.txt
+promql-queries.txt.gz
+promql-queries-*.txt
+promql-queries-*.txt.gz

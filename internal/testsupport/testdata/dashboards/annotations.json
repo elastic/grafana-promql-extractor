@@ -1,0 +1,55 @@
+{
+  "uid": "fx-annotations",
+  "title": "Fixture: annotation queries",
+  "schemaVersion": 39,
+  "annotations": {
+    "list": [
+      {
+        "name": "Annotations & Alerts",
+        "enable": true,
+        "type": "dashboard",
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "datasource": { "type": "datasource", "uid": "-- Grafana --" }
+      },
+      {
+        "name": "Deployments",
+        "enable": true,
+        "iconColor": "green",
+        "datasource": { "type": "prometheus", "uid": "prom-main" },
+        "expr": "changes(kube_deployment_status_observed_generation{namespace=\"$namespace\"}[5m]) > 0"
+      },
+      {
+        "name": "Firing alerts",
+        "enable": false,
+        "iconColor": "red",
+        "datasource": "Prometheus Main",
+        "expr": "ALERTS{alertstate=\"firing\"}"
+      },
+      {
+        "name": "Log errors",
+        "enable": true,
+        "iconColor": "orange",
+        "datasource": { "type": "loki", "uid": "loki-main" },
+        "expr": "{app=\"api\"} |= \"error\""
+      },
+      {
+        "name": "Restarts, stored in a target",
+        "enable": true,
+        "iconColor": "yellow",
+        "datasource": { "type": "prometheus", "uid": "prom-main" },
+        "target": {
+          "refId": "Anno",
+          "expr": "changes(kube_pod_container_status_restarts_total[$__rate_interval]) > 0"
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Requests",
+      "datasource": { "type": "prometheus", "uid": "prom-main" },
+      "targets": [{ "refId": "A", "expr": "rate(annotated_requests_total[5m])" }]
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "uid": "fx-default",
+  "title": "Fixture: inherited default datasource",
+  "schemaVersion": 39,
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "No datasource anywhere",
+      "targets": [{ "refId": "A", "expr": "up" }]
+    },
+    {
+      "type": "timeseries",
+      "title": "Explicit null datasource",
+      "datasource": null,
+      "targets": [{ "refId": "A", "datasource": null, "expr": "process_cpu_seconds_total" }]
+    }
+  ]
+}

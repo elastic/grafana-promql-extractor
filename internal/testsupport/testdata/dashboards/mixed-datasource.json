@@ -1,0 +1,29 @@
+{
+  "uid": "fx-mixed",
+  "title": "Fixture: mixed datasource panel",
+  "schemaVersion": 39,
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Mixed",
+      "datasource": { "type": "datasource", "uid": "-- Mixed --" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prom-secondary" },
+          "expr": "mixed_prometheus_metric"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "loki", "uid": "loki-main" },
+          "expr": "{app=\"api\"}"
+        },
+        {
+          "refId": "C",
+          "datasource": { "uid": "prom-main" },
+          "expr": "mixed_metric_resolved_by_uid"
+        }
+      ]
+    }
+  ]
+}

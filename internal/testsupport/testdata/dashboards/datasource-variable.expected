@@ -1,0 +1,3 @@
+fx-tmplvar;metric_from_string_var
+fx-tmplvar;metric_from_typed_var
+fx-tmplvar;metric_from_untyped_var

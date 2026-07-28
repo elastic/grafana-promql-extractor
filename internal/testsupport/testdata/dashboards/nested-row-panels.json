@@ -1,0 +1,52 @@
+{
+  "uid": "fx-nested",
+  "title": "Fixture: nested row panels",
+  "schemaVersion": 39,
+  "panels": [
+    {
+      "type": "row",
+      "title": "Collapsed row",
+      "collapsed": true,
+      "panels": [
+        {
+          "type": "timeseries",
+          "title": "Inside a collapsed row",
+          "datasource": { "type": "prometheus", "uid": "prom-main" },
+          "targets": [{ "refId": "A", "expr": "nested_metric" }]
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Row carrying a datasource",
+      "collapsed": true,
+      "datasource": { "type": "prometheus", "uid": "prom-main" },
+      "panels": [
+        {
+          "type": "timeseries",
+          "title": "Inherits the row datasource",
+          "targets": [{ "refId": "A", "expr": "inherited_metric" }]
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Row carrying a loki datasource",
+      "collapsed": true,
+      "datasource": { "type": "loki", "uid": "loki-main" },
+      "panels": [
+        {
+          "type": "timeseries",
+          "title": "Inherits the loki datasource",
+          "targets": [{ "refId": "A", "expr": "{app=\"api\"}" }]
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Top level",
+      "datasource": { "type": "prometheus", "uid": "prom-main" },
+      "targets": [{ "refId": "A", "expr": "top_level_metric" }]
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "uid": "fx-unknown",
+  "title": "Fixture: dangling datasource reference",
+  "schemaVersion": 39,
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Points at a datasource that no longer exists",
+      "datasource": { "uid": "deleted-datasource-uid" },
+      "targets": [{ "refId": "A", "expr": "unresolved_metric" }]
+    },
+    {
+      "type": "timeseries",
+      "title": "Points at an undefined variable",
+      "datasource": { "uid": "${undefined_variable}" },
+      "targets": [{ "refId": "A", "expr": "unresolved_variable_metric" }]
+    }
+  ]
+}
