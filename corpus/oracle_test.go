@@ -157,6 +157,57 @@ func TestClassify(t *testing.T) {
 	}
 }
 
+func TestWords(t *testing.T) {
+	tests := map[string][]string{
+		// A letter that continues a number belongs to it.
+		"rate(metric_0011223344[5m]) / 1e6": {"rate", "metric_0011223344"},
+		"sum by (le) (x) > 0.99":            {"sum", "by", "le", "x"},
+		`{a="b.c", d=~"e|f"}`:               {"a", "b", "c", "d", "e", "f"},
+		"$__rate_interval and ${var_00ff}":  {"__rate_interval", "and", "var_00ff"},
+		"metric_00112233aa[$__range:5m]":    {"metric_00112233aa", "__range"},
+		"":                                  nil,
+	}
+	for expr, want := range tests {
+		got := Words(expr)
+		if strings.Join(got, ",") != strings.Join(want, ",") {
+			t.Errorf("Words(%q) = %v, want %v", expr, got, want)
+		}
+	}
+}
+
+// TestSurvivingIdentifiers guards the leak check itself: it has to accept the
+// vocabulary anonymized output legitimately keeps, and report anything else.
+func TestSurvivingIdentifiers(t *testing.T) {
+	clean := []string{
+		`sum by (label_0123456789) (rate(metric_aabbccddee{label_00112233ff=~"value_0011223344|value_ffeeddccbb"}[$__rate_interval]))`,
+		`histogram_quantile(0.99, sum by (le) (rate(metric_0000000000[5m])))`,
+		`{__name__="metric_0000000000", quantile="0.5"}`,
+		`topk(5, metric_0000000000 offset 1d) and on (label_0000000000) group_left (label_1111111111) metric_1111111111`,
+		`${var_0000000000:csv} * $__interval_ms / func_0000000000(metric_0000000000)`,
+		`${__to:date:seconds} - metric_0000000000{label_0000000000=~"(?i)value_0000000000"}`,
+		`sum(increase(metric_0000000000[${__range_s}s]))`,
+	}
+	for _, query := range clean {
+		if surviving := SurvivingIdentifiers(query); len(surviving) > 0 {
+			t.Errorf("SurvivingIdentifiers(%q) reported %v, want none", query, surviving)
+		}
+	}
+
+	leaky := map[string][]string{
+		`sum(http_requests_total)`:                       {"http_requests_total"},
+		`metric_0000000000{job="value_0000000000"}`:      {"job"},
+		`metric_0000000000{label_0000000000="api"}`:      {"api"},
+		`metric_0000000000 + $namespace`:                 {"namespace"},
+		`metric_00{label_0000000000="value_0000000000"}`: {"metric_00"},
+	}
+	for query, want := range leaky {
+		got := SurvivingIdentifiers(query)
+		if strings.Join(got, ",") != strings.Join(want, ",") {
+			t.Errorf("SurvivingIdentifiers(%q) = %v, want %v", query, got, want)
+		}
+	}
+}
+
 // TestSkipReasonNeedsEvidence guards the accounting check against excusing a
 // miss on flimsy grounds.
 func TestSkipReasonNeedsEvidence(t *testing.T) {

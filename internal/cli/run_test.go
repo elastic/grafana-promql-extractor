@@ -335,6 +335,100 @@ func TestRequiresURL(t *testing.T) {
 	}
 }
 
+// TestAnonymize checks the flag end to end: nothing recognizable from the
+// dashboards survives, while the queries keep their shape and stay attributable
+// to a dashboard.
+func TestAnonymize(t *testing.T) {
+	fixtures, err := testsupport.Fixtures()
+	if err != nil {
+		t.Fatalf("loading fixtures: %v", err)
+	}
+	fake := testsupport.NewFakeGrafana(t, testsupport.FakeOptions{Dashboards: fixtures})
+	dir := t.TempDir()
+	plain := filepath.Join(dir, "plain.txt")
+	anonymous := filepath.Join(dir, "anonymous.txt")
+
+	if stderr, err := runCLI(t, "--url", fake.URL, "-o", plain,
+		"--compress=false", "--progress", "never"); err != nil {
+		t.Fatalf("plain run failed: %v\n%s", err, stderr)
+	}
+	if stderr, err := runCLI(t, "--url", fake.URL, "-o", anonymous, "--anonymize",
+		"--anonymize-salt", "a-secret", "--compress=false", "--progress", "never"); err != nil {
+		t.Fatalf("anonymized run failed: %v\n%s", err, stderr)
+	}
+
+	plainLines := readLines(t, plain)
+	anonymousLines := readLines(t, anonymous)
+
+	if len(plainLines) != len(anonymousLines) {
+		t.Fatalf("got %d anonymized lines, want the %d of the plain run",
+			len(anonymousLines), len(plainLines))
+	}
+	if len(distinctUIDs(anonymousLines)) != len(distinctUIDs(plainLines)) {
+		t.Error("anonymizing changed how many dashboards the output covers")
+	}
+
+	// Nothing from the fixtures may show through: not a uid, not a metric name,
+	// not a label, not a value, not a variable name.
+	joined := strings.Join(anonymousLines, "\n")
+	for _, secret := range []string{
+		"fx-", "prom-main", "dup_metric", "multiline_metric", "annotated_requests_total",
+		"kube_deployment_status_observed_generation", "DCGM_FI_DEV_GPU_TEMP",
+		"namespace", "instance", "job", "$node", "gpu",
+	} {
+		if strings.Contains(joined, secret) {
+			t.Errorf("%q survived anonymization", secret)
+		}
+	}
+
+	// The shape has to survive, or the output is not worth sharing.
+	for _, kept := range []string{"rate(", "sum by (", "[5m]", "$__rate_interval"} {
+		if !strings.Contains(joined, kept) {
+			t.Errorf("%q did not survive anonymization", kept)
+		}
+	}
+
+	// A second run with the same salt has to produce the same file, so that
+	// separate exports stay comparable.
+	again := filepath.Join(dir, "again.txt")
+	if stderr, err := runCLI(t, "--url", fake.URL, "-o", again, "--anonymize",
+		"--anonymize-salt", "a-secret", "--compress=false", "--progress", "never"); err != nil {
+		t.Fatalf("repeat run failed: %v\n%s", err, stderr)
+	}
+	assertSameLines(t, readLines(t, again), anonymousLines)
+
+	// Without a shared salt the pseudonyms must differ.
+	different := filepath.Join(dir, "different.txt")
+	if stderr, err := runCLI(t, "--url", fake.URL, "-o", different, "--anonymize",
+		"--compress=false", "--progress", "never"); err != nil {
+		t.Fatalf("random salt run failed: %v\n%s", err, stderr)
+	}
+	if strings.Join(readLines(t, different), "\n") == joined {
+		t.Error("a random salt produced the same pseudonyms as the fixed one")
+	}
+}
+
+func TestAnonymizeSaltFromEnvironment(t *testing.T) {
+	fake := testsupport.NewFakeGrafana(t, testsupport.FakeOptions{Dashboards: testsupport.GeneratedFixtures(3)})
+	dir := t.TempDir()
+	fromEnv := filepath.Join(dir, "env.txt")
+	fromFlag := filepath.Join(dir, "flag.txt")
+
+	t.Setenv("GRAFANA_ANONYMIZE_SALT", "shared-secret")
+	if stderr, err := runCLI(t, "--url", fake.URL, "-o", fromEnv, "--anonymize",
+		"--compress=false", "--progress", "never"); err != nil {
+		t.Fatalf("run with the environment salt failed: %v\n%s", err, stderr)
+	}
+
+	t.Setenv("GRAFANA_ANONYMIZE_SALT", "")
+	if stderr, err := runCLI(t, "--url", fake.URL, "-o", fromFlag, "--anonymize",
+		"--anonymize-salt", "shared-secret", "--compress=false", "--progress", "never"); err != nil {
+		t.Fatalf("run with the flag salt failed: %v\n%s", err, stderr)
+	}
+
+	assertSameLines(t, readLines(t, fromEnv), readLines(t, fromFlag))
+}
+
 func TestRejectsInvalidFlags(t *testing.T) {
 	tests := [][]string{
 		{"--url", "http://localhost", "--page-size", "99999"},
@@ -343,6 +437,10 @@ func TestRejectsInvalidFlags(t *testing.T) {
 		{"--url", "http://localhost", "--datasource-types", ""},
 		{"--url", "http://localhost", "--progress", "sometimes"},
 		{"--url", "http://localhost", "-o", ""},
+		// A salt without anonymizing is a misunderstanding worth reporting.
+		{"--url", "http://localhost", "--anonymize-salt", "x"},
+		// Appending with a random salt would mix two sets of pseudonyms.
+		{"--url", "http://localhost", "--anonymize", "--append"},
 	}
 	for _, args := range tests {
 		if _, err := runCLI(t, args...); err == nil {

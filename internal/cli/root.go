@@ -41,6 +41,9 @@ type options struct {
 	includeUnresolved bool
 	dedupe            bool
 
+	anonymize     bool
+	anonymizeSalt string
+
 	timeout            time.Duration
 	retries            int
 	insecureSkipVerify bool
@@ -53,11 +56,12 @@ type options struct {
 
 // envForFlag maps flags to the environment variables that can supply them.
 var envForFlag = map[string]string{
-	"url":      "GRAFANA_URL",
-	"token":    "GRAFANA_TOKEN",
-	"user":     "GRAFANA_USER",
-	"password": "GRAFANA_PASSWORD",
-	"org-id":   "GRAFANA_ORG_ID",
+	"url":            "GRAFANA_URL",
+	"token":          "GRAFANA_TOKEN",
+	"user":           "GRAFANA_USER",
+	"password":       "GRAFANA_PASSWORD",
+	"org-id":         "GRAFANA_ORG_ID",
+	"anonymize-salt": "GRAFANA_ANONYMIZE_SALT",
 }
 
 // NewRootCmd builds the command. It is exported so tests can drive the real
@@ -90,7 +94,10 @@ the dashboard's own datasource variables.`),
   grafana-dashboard-extractor --max-dashboards 500 --compress=false -o sample.txt
 
   # 50k dashboards split into files of 10k dashboards each
-  grafana-dashboard-extractor --dashboards-per-file 10000 --concurrency 16`, "\n"),
+  grafana-dashboard-extractor --dashboards-per-file 10000 --concurrency 16
+
+  # Pseudonymized, so the queries can be shared outside the organization
+  grafana-dashboard-extractor --anonymize -o shareable.txt`, "\n"),
 		Version:           version,
 		Args:              cobra.NoArgs,
 		SilenceUsage:      true,
@@ -126,6 +133,11 @@ the dashboard's own datasource variables.`),
 	f.StringSliceVar(&opts.datasourceTypes, "datasource-types", extract.DefaultDatasourceTypes, "datasource plugin types to treat as PromQL sources")
 	f.BoolVar(&opts.includeUnresolved, "include-unresolved", true, "keep queries whose datasource type cannot be determined")
 	f.BoolVar(&opts.dedupe, "dedupe", true, "drop repeated identical queries within a dashboard")
+
+	f.BoolVar(&opts.anonymize, "anonymize", false,
+		"replace metric names, label names, label values, variable names and dashboard UIDs with pseudonyms, so the output can be shared")
+	f.StringVar(&opts.anonymizeSalt, "anonymize-salt", "",
+		"secret that determines the pseudonyms, for comparing anonymized runs; random per run by default [GRAFANA_ANONYMIZE_SALT]")
 
 	f.DurationVar(&opts.timeout, "timeout", 30*time.Second, "per-request timeout")
 	f.IntVar(&opts.retries, "retries", 4, "retries per request for rate limits and server errors")

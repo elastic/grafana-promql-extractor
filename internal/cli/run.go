@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/sync/errgroup"
 
+	"github.com/felixbarny/grafana-dashboard-extractor/internal/anonymize"
 	"github.com/felixbarny/grafana-dashboard-extractor/internal/extract"
 	"github.com/felixbarny/grafana-dashboard-extractor/internal/grafana"
 	"github.com/felixbarny/grafana-dashboard-extractor/internal/output"
@@ -80,6 +81,14 @@ func run(cmd *cobra.Command, opts *options) error {
 		Dedupe:            opts.dedupe,
 	}
 
+	var anonymizer *anonymize.Anonymizer
+	if opts.anonymize {
+		if anonymizer, err = anonymize.New(opts.anonymizeSalt); err != nil {
+			return err
+		}
+		log.debugf("anonymizing with %s", saltSource(opts.anonymizeSalt))
+	}
+
 	searchOpts := grafana.SearchOptions{
 		PageSize:   opts.pageSize,
 		Max:        opts.maxDashboards,
@@ -117,7 +126,7 @@ func run(cmd *cobra.Command, opts *options) error {
 	searchOpts.OnPage = func(page int) { currentPage.Store(int64(page)) }
 
 	tracker.Start()
-	stats, runErr := pipeline(ctx, client, extractor, writer, tracker, log, searchOpts, opts)
+	stats, runErr := pipeline(ctx, client, extractor, anonymizer, writer, tracker, log, searchOpts, opts)
 	closeErr := writer.Close()
 	tracker.Stop()
 
@@ -128,6 +137,11 @@ func run(cmd *cobra.Command, opts *options) error {
 			"\nInterrupted on search page %d. Resume with --start-page %d --append; "+
 				"the dashboards of that page may repeat.\n",
 			currentPage.Load(), currentPage.Load())
+		if opts.anonymize && opts.anonymizeSalt == "" {
+			fmt.Fprintf(cmd.ErrOrStderr(),
+				"A resumed run would pseudonymize differently, since this one used a random salt. "+
+					"Start over with --anonymize-salt to get one consistent file.\n")
+		}
 	}
 
 	if closeErr != nil {
@@ -149,6 +163,7 @@ func pipeline(
 	ctx context.Context,
 	client *grafana.Client,
 	extractor *extract.Extractor,
+	anonymizer *anonymize.Anonymizer,
 	writer *output.Writer,
 	tracker *progress.Tracker,
 	log *logger,
@@ -180,7 +195,7 @@ func pipeline(
 		group.Go(func() error {
 			defer workers.Done()
 			for hit := range hits {
-				result, err := fetch(ctx, client, extractor, hit)
+				result, err := fetch(ctx, client, extractor, anonymizer, hit)
 				if err != nil {
 					if ctx.Err() != nil {
 						return ctx.Err()
@@ -225,7 +240,13 @@ func pipeline(
 // fetch downloads one dashboard and extracts its queries. The document is
 // decoded straight from the response body and dropped as soon as extraction is
 // done.
-func fetch(ctx context.Context, client *grafana.Client, extractor *extract.Extractor, hit grafana.DashboardHit) (extract.Result, error) {
+func fetch(
+	ctx context.Context,
+	client *grafana.Client,
+	extractor *extract.Extractor,
+	anonymizer *anonymize.Anonymizer,
+	hit grafana.DashboardHit,
+) (extract.Result, error) {
 	body, err := client.DashboardJSON(ctx, hit.UID)
 	if err != nil {
 		return extract.Result{}, err
@@ -250,7 +271,23 @@ func fetch(ctx context.Context, client *grafana.Client, extractor *extract.Extra
 	if partial {
 		result.Stats.PartialDecodes = 1
 	}
+	if anonymizer != nil {
+		// Pseudonymize in the worker, so the hashing spreads over the pool.
+		result.UID = anonymizer.UID(result.UID)
+		for i, query := range result.Queries {
+			result.Queries[i] = anonymizer.Query(query)
+		}
+	}
 	return result, nil
+}
+
+// saltSource describes where the pseudonyms come from, without echoing the
+// salt itself, which is the secret that keeps them irreversible.
+func saltSource(salt string) string {
+	if salt == "" {
+		return "a random salt, so pseudonyms differ from any other run"
+	}
+	return "the given salt, so pseudonyms match other runs using it"
 }
 
 func validate(opts *options) error {
@@ -280,6 +317,15 @@ func validate(opts *options) error {
 	}
 	if len(extract.NewTypeSet(opts.datasourceTypes)) == 0 {
 		return errors.New("--datasource-types must list at least one plugin type")
+	}
+	if opts.anonymizeSalt != "" && !opts.anonymize {
+		return errors.New("--anonymize-salt has no effect without --anonymize")
+	}
+	// A random salt per run would give the appended queries different
+	// pseudonyms than the ones already in the file.
+	if opts.anonymize && opts.appendOutput && opts.anonymizeSalt == "" {
+		return errors.New("--anonymize with --append needs --anonymize-salt, " +
+			"so that the queries added now get the same pseudonyms as the ones already written")
 	}
 	return nil
 }

@@ -84,6 +84,7 @@ Run `grafana-dashboard-extractor --help` for the full list. The ones that matter
 | `--datasource-types` | `prometheus,grafana-amazonprometheus-datasource,grafana-mimir-datasource` | Plugin types treated as PromQL sources |
 | `--include-unresolved` | `true` | Keep queries whose datasource cannot be resolved |
 | `--dedupe` | `true` | Drop repeated identical queries within a dashboard |
+| `--anonymize` | `false` | Replace the identifiers of every query with pseudonyms |
 | `--start-page` | `1` | Resume an interrupted run at a later search page |
 | `--progress` | `auto` | `auto`, `always` or `never` |
 
@@ -107,6 +108,41 @@ zcat promql-queries.txt.gz | cut -d';' -f1 | uniq -c # queries per dashboard
 Multi-line expressions are collapsed onto a single line, so every query occupies exactly
 one line. Dashboards are fetched concurrently, so line order is not stable across runs.
 Dashboards without PromQL queries contribute no lines.
+
+## Sharing the output
+
+Queries name what an organization runs. `--anonymize` replaces every identifier with a
+pseudonym, so the output can be handed to someone outside it:
+
+```bash
+grafana-dashboard-extractor --anonymize -o shareable.txt
+```
+
+```
+dash_9e3a17b204;sum by (label_1f7c4a0e83) (rate(metric_5b8d02c9a1{label_44e1b7cd90=~"$var_7c0a91fe32"}[$__rate_interval]))
+```
+
+Metric names, label names, label values, dashboard variable names and dashboard UIDs are
+replaced. What is the same in every Grafana instance is kept, so the queries stay worth
+analyzing: functions, aggregations, operators, durations, numbers, regular expression
+syntax, the reserved labels `le` and `quantile`, and Grafana's own `$__rate_interval` and
+friends. An identifier maps to the same pseudonym everywhere in the output, so grouping and
+counting still work.
+
+The mapping is a salted digest, and the salt is random per run and never written down, so
+nobody can turn a pseudonym back into a name, not even by guessing likely names. That also
+means two runs produce unrelated pseudonyms. To compare runs, or to resume one with
+`--append`, supply your own secret and keep it out of your shell history:
+
+```bash
+export GRAFANA_ANONYMIZE_SALT=$(openssl rand -hex 32)
+grafana-dashboard-extractor --anonymize
+```
+
+Two caveats worth knowing before sharing. Anything the tool cannot recognize as PromQL is
+pseudonymized rather than kept, so a query in a dialect such as MetricsQL loses the parts
+of its syntax that Prometheus does not have. And stderr is not anonymized: `--verbose`
+logs real dashboard UIDs for failures.
 
 ## How it works at scale
 
@@ -196,6 +232,13 @@ have to agree:
   annotation either appears in the output or has an explicable reason not to.
 
 The last one is what surfaced that annotation queries were being ignored.
+
+The same corpus validates `--anonymize`, by extracting it twice and comparing. No word of a
+dashboard may survive in the anonymized output, judged against a vocabulary of public
+PromQL and Grafana words assembled from a parser rather than from the anonymizer's own
+lists. And a query has to parse the same way before and after, which is what caught `\d`
+losing its `d` to a pseudonym, `(?i)` losing its flag, and the unit of `[${__range_s}s]`
+being mistaken for a metric name.
 
 The test is behind the `corpus` build tag, so `go test ./...` never runs it and CI never
 touches grafana.com. Dashboards are downloaded once, one request at a time with 500 ms in

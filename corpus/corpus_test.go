@@ -52,7 +52,7 @@ func TestCorpus(t *testing.T) {
 			len(dashboards), opts.Dashboards, minimum)
 	}
 
-	extracted, stderr := extractAll(t, opts, dashboards)
+	extracted, stderr := extractAll(t, opts, dashboards, "extracted-queries.txt")
 	t.Logf("extractor summary:\n%s", indent(stderr))
 
 	report := analyze(dashboards, extracted)
@@ -124,7 +124,7 @@ func TestCorpus(t *testing.T) {
 
 // extractAll serves the corpus from a fake Grafana and runs the real command
 // against it, so the whole pipeline is exercised, not just the extractor.
-func extractAll(t *testing.T, opts Options, dashboards []Dashboard) (map[string][]string, string) {
+func extractAll(t *testing.T, opts Options, dashboards []Dashboard, name string, extraArgs ...string) (map[string][]string, string) {
 	t.Helper()
 
 	fixtures := make([]testsupport.Fixture, 0, len(dashboards))
@@ -138,19 +138,19 @@ func extractAll(t *testing.T, opts Options, dashboards []Dashboard) (map[string]
 	}
 
 	fake := testsupport.NewFakeGrafana(t, testsupport.FakeOptions{Dashboards: fixtures})
-	out := filepath.Join(opts.CacheDir, "extracted-queries.txt")
+	out := filepath.Join(opts.CacheDir, name)
 
 	cmd := cli.NewRootCmd()
 	var stderr bytes.Buffer
 	cmd.SetOut(&stderr)
 	cmd.SetErr(&stderr)
-	cmd.SetArgs([]string{
+	cmd.SetArgs(append([]string{
 		"--url", fake.URL,
 		"-o", out,
 		"--compress=false",
 		"--progress", "never",
 		"--page-size", "500",
-	})
+	}, extraArgs...))
 	if err := cmd.ExecuteContext(context.Background()); err != nil {
 		t.Fatalf("extraction failed: %v\n%s", err, stderr.String())
 	}
