@@ -40,6 +40,13 @@ func run(cmd *cobra.Command, opts *options) error {
 
 	ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	// Hand the signal back to the runtime once the first one has arrived, so
+	// that a second Ctrl-C aborts a shutdown that is taking too long instead of
+	// being swallowed as well.
+	go func() {
+		<-ctx.Done()
+		stop()
+	}()
 
 	client, err := grafana.New(grafana.Config{
 		BaseURL:            opts.url,
@@ -234,7 +241,10 @@ func pipeline(
 		return nil
 	})
 
-	return stats, group.Wait()
+	// Wait first: it is what synchronizes the writer goroutine's stats with
+	// this one, and a return statement may evaluate stats before the call.
+	err := group.Wait()
+	return stats, err
 }
 
 // fetch downloads one dashboard and extracts its queries. The document is

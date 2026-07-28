@@ -115,8 +115,15 @@ func TestReplacesWhatBelongsToTheUser(t *testing.T) {
 		},
 		{
 			name:  "escapes and flags keep the regular expression working",
-			query: `up{pod=~"(?i)web-\d+", host=~"(?:a|b)\.example\.com"}`,
-			want:  `<metric>{<label>=~"(?i)<value>-\d+", <label>=~"(?:<value>|<value>)\.<value>\.<value>"}`,
+			query: `up{pod=~"(?i)web-\d+", host=~"(?:a|b)\.example\.com", ip=~"\\d+\\.\\d+"}`,
+			want:  `<metric>{<label>=~"(?i)<value>-\d+", <label>=~"(?:<value>|<value>)\.<value>\.<value>", <label>=~"\\d+\\.\\d+"}`,
+		},
+		{
+			// A range has to keep meaning a range, or the regular expression
+			// stops compiling.
+			name:  "character classes keep their ranges",
+			query: `up{pod=~"[a-z]+-[0-9]{2}", name=~"[A-Za-z0-9_.-]+", env=~"[internal]"}`,
+			want:  `<metric>{<label>=~"[a-z]+-[0-9]{2}", <label>=~"[A-Za-z0-9_.-]+", <label>=~"[<value>]"}`,
 		},
 	}
 

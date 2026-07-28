@@ -186,6 +186,7 @@ func TestSurvivingIdentifiers(t *testing.T) {
 		`${var_0000000000:csv} * $__interval_ms / func_0000000000(metric_0000000000)`,
 		`${__to:date:seconds} - metric_0000000000{label_0000000000=~"(?i)value_0000000000"}`,
 		`sum(increase(metric_0000000000[${__range_s}s]))`,
+		`metric_0000000000{label_0000000000=~"[a-z0-9]+-[A-Z_]"}`,
 	}
 	for _, query := range clean {
 		if surviving := SurvivingIdentifiers(query); len(surviving) > 0 {

@@ -296,6 +296,11 @@ func TestNormalizationDropsComments(t *testing.T) {
 			want: `metric{path="a\"#b"}`,
 		},
 		{
+			name: "a backtick string is raw, so a trailing backslash still ends it",
+			expr: "metric{path=~`a\\`} # comment",
+			want: "metric{path=~`a\\`}",
+		},
+		{
 			name: "line break inside a label value cannot break the format",
 			expr: "metric{note=\"first\nsecond\"}",
 			want: `metric{note="first second"}`,

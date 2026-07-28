@@ -35,6 +35,10 @@ var (
 	// regexGroupFlags matches the flags of a regular expression group, the "i"
 	// of "(?i)".
 	regexGroupFlags = regexp.MustCompile(`\(\?[imsU]*([):])`)
+	// characterClass matches a regular expression class, whose contents are
+	// characters rather than names, and characterRange one range inside it.
+	characterClass = regexp.MustCompile(`\[[^\]]*\]`)
+	characterRange = regexp.MustCompile(`[A-Za-z0-9]-[A-Za-z0-9]`)
 )
 
 // dropSyntax removes the spelling that belongs to Grafana or to regular
@@ -43,7 +47,12 @@ var (
 // anything away, and neither can be listed word by word.
 func dropSyntax(query string) string {
 	query = variableFormat.ReplaceAllString(query, "$1$2$3$4")
-	return regexGroupFlags.ReplaceAllString(query, "($1")
+	query = regexGroupFlags.ReplaceAllString(query, "($1")
+	// A range spans two characters, so splitting "[a-z0-9]" into words would
+	// report the fragment "z0" as if a dashboard had named something.
+	return characterClass.ReplaceAllStringFunc(query, func(class string) string {
+		return characterRange.ReplaceAllString(class, "")
+	})
 }
 
 // Words splits out the identifier-like words of an expression. A word that
@@ -79,6 +88,10 @@ func isPublicWord(word string) bool {
 	lower := strings.ToLower(word)
 	switch {
 	case pseudonym.MatchString(word):
+		return true
+	case len(word) == 1:
+		// One letter names nothing. They turn up where a regular expression
+		// class lists characters, as the a and c of "[a|c]".
 		return true
 	case strings.HasPrefix(word, "__"):
 		// Prometheus reserves these label names, Grafana these variables.

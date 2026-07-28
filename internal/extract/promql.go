@@ -1,8 +1,6 @@
 package extract
 
 import (
-	"maps"
-	"slices"
 	"sort"
 	"strings"
 	"unicode"
@@ -50,11 +48,6 @@ func NewTypeSet(types []string) TypeSet {
 func (s TypeSet) Has(t string) bool {
 	_, ok := s[strings.ToLower(strings.TrimSpace(t))]
 	return ok
-}
-
-// List returns the sorted plugin types in the set.
-func (s TypeSet) List() []string {
-	return slices.Sorted(maps.Keys(s))
 }
 
 // Extractor pulls PromQL expressions out of dashboards.
@@ -391,7 +384,9 @@ func normalizeQuery(expr string) string {
 			switch {
 			case escaped:
 				escaped = false
-			case r == '\\':
+			// A backquoted string is raw, so a backslash in it escapes nothing
+			// and must not swallow the closing quote.
+			case r == '\\' && quote != '`':
 				escaped = true
 			case r == quote:
 				quote = 0

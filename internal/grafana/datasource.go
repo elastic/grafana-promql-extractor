@@ -99,15 +99,6 @@ func (r *Registry) DefaultName() string {
 	return r.defaultName
 }
 
-// Types returns a histogram of plugin types, for diagnostics.
-func (r *Registry) Types() map[string]int {
-	counts := make(map[string]int)
-	for _, t := range r.byUID {
-		counts[t]++
-	}
-	return counts
-}
-
 // LoadRegistry fetches the datasource list. It prefers /api/datasources, which
 // requires the datasources:read permission, and falls back to
 // /api/frontend/settings, which exposes the same plugin types to any

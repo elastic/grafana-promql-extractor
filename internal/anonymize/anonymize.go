@@ -236,11 +236,20 @@ func (a *Anonymizer) value(content, kind string) string {
 
 	for i := 0; i < len(content); {
 		switch c := content[i]; {
-		case c == '\\' && i+1 < len(content):
+		case c == '\\':
 			// An escape is syntax, so "\d" stays a digit class rather than
-			// losing its d to a pseudonym.
-			b.WriteString(content[i : i+2])
-			i += 2
+			// losing its d to a pseudonym. Doubled backslashes are how a
+			// dashboard writes one, and the letter after them belongs to the
+			// regular expression just the same.
+			n := 1
+			for i+n < len(content) && content[i+n] == '\\' {
+				n++
+			}
+			if i+n < len(content) {
+				n++
+			}
+			b.WriteString(content[i : i+n])
+			i += n
 		case c == '(':
 			// The flags of a group, the i of "(?i)", are syntax too.
 			n := max(regexGroupPrefix(content[i:]), 1)
@@ -251,6 +260,10 @@ func (a *Anonymizer) value(content, kind string) string {
 			token, rest := a.variableToken(content[i:])
 			b.WriteString(token)
 			i = len(content) - len(rest)
+		case c == '[' && classEnd(content[i:]) > 0:
+			n := classEnd(content[i:])
+			b.WriteString(a.characterClass(content[i:i+n], kind))
+			i += n
 		case isIdentStart(c) && c != ':':
 			start := i
 			for i < len(content) && isWordByte(content[i]) {
@@ -263,6 +276,68 @@ func (a *Anonymizer) value(content, kind string) string {
 		}
 	}
 	return b.String()
+}
+
+// characterClass rewrites the contents of a regular expression class, which are
+// characters rather than names. Ranges and single characters stay as they are,
+// since a-z has to keep meaning a-z and one letter gives nothing away; a longer
+// run is still replaced, so that "[internal]" does not name anything.
+func (a *Anonymizer) characterClass(class, kind string) string {
+	var b strings.Builder
+	b.Grow(len(class))
+	b.WriteByte('[')
+
+	inner := class[1 : len(class)-1]
+	for i := 0; i < len(inner); {
+		switch {
+		case inner[i] == '\\' && i+1 < len(inner):
+			b.WriteString(inner[i : i+2])
+			i += 2
+
+		case i+2 < len(inner) && inner[i+1] == '-' && isWordByte(inner[i]) && isWordByte(inner[i+2]):
+			b.WriteString(inner[i : i+3])
+			i += 3
+
+		case isWordByte(inner[i]):
+			start := i
+			for i < len(inner) && isWordByte(inner[i]) {
+				i++
+				if i+1 < len(inner) && inner[i+1] == '-' {
+					// The next character opens a range, which is syntax.
+					break
+				}
+			}
+			if run := inner[start:i]; len(run) == 1 {
+				b.WriteString(run)
+			} else {
+				b.WriteString(a.pseudonym(kind, run))
+			}
+
+		default:
+			b.WriteByte(inner[i])
+			i++
+		}
+	}
+
+	b.WriteByte(']')
+	return b.String()
+}
+
+// classEnd returns the length of the character class starting at s[0], the
+// closing bracket included, or zero if it is not closed. A bracket right after
+// the opening one is a literal, as in "[]]".
+func classEnd(s string) int {
+	for i := 1; i < len(s); i++ {
+		switch s[i] {
+		case '\\':
+			i++
+		case ']':
+			if i > 1 {
+				return i + 1
+			}
+		}
+	}
+	return 0
 }
 
 // variableToken rewrites a leading variable reference and returns what follows.

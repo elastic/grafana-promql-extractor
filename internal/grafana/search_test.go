@@ -169,6 +169,22 @@ func TestCountDashboards(t *testing.T) {
 	}
 }
 
+// A page number means nothing without a page size, so counting a resumed run
+// has to skip exactly the dashboards the run itself will skip.
+func TestCountDashboardsMatchesAResumedRun(t *testing.T) {
+	fake := testsupport.NewFakeGrafana(t, testsupport.FakeOptions{Dashboards: testsupport.GeneratedFixtures(25)})
+	client := mustClient(t, grafana.Config{BaseURL: fake.URL})
+	opt := grafana.SearchOptions{PageSize: 10, StartPage: 3}
+
+	count, err := client.CountDashboards(context.Background(), opt)
+	if err != nil {
+		t.Fatalf("CountDashboards: %v", err)
+	}
+	if want := len(collectUIDs(t, client, opt)); count != want {
+		t.Errorf("count = %d, want %d, the number of dashboards the run yields", count, want)
+	}
+}
+
 func TestDashboardJSON(t *testing.T) {
 	fixtures, err := testsupport.Fixtures()
 	if err != nil {

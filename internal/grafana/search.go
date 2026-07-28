@@ -130,8 +130,12 @@ func (c *Client) SearchDashboards(ctx context.Context, opt SearchOptions, yield 
 // extraction itself: 50k dashboards is ten requests at the maximum page size.
 func (c *Client) CountDashboards(ctx context.Context, opt SearchOptions) (int, error) {
 	counting := opt
-	counting.PageSize = MaxPageSize
 	counting.OnPage = nil
+	// A page number only means something together with a page size, so a run
+	// resuming at a later page has to be counted with the size it will use.
+	if counting.firstPage() == 1 {
+		counting.PageSize = MaxPageSize
+	}
 	count := 0
 	err := c.SearchDashboards(ctx, counting, func(DashboardHit) error {
 		count++
