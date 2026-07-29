@@ -50,6 +50,7 @@ type Tracker struct {
 	interval time.Duration
 	width    int
 
+	// total is fixed at construction; zero means unknown.
 	total      int64
 	dashboards atomic.Int64
 	queries    atomic.Int64
@@ -83,11 +84,6 @@ func New(out io.Writer, total int, mode Mode) *Tracker {
 		t.interval = ttyInterval
 	}
 	return t
-}
-
-// SetTotal updates the expected number of dashboards.
-func (t *Tracker) SetTotal(total int) {
-	atomic.StoreInt64(&t.total, int64(total))
 }
 
 // Start begins rendering until Stop is called. Calling Stop without Start is
@@ -195,7 +191,7 @@ func (t *Tracker) line() string {
 	dashboards := t.dashboards.Load()
 	queries := t.queries.Load()
 	failures := t.failures.Load()
-	total := atomic.LoadInt64(&t.total)
+	total := t.total
 	elapsed := time.Since(t.start)
 
 	var b strings.Builder

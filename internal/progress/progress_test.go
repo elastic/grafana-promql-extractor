@@ -77,19 +77,6 @@ func TestNonTerminalOutputHasNoCarriageReturns(t *testing.T) {
 	}
 }
 
-func TestSetTotalIsReflectedInTheLine(t *testing.T) {
-	var out bytes.Buffer
-	tracker := progress.New(&out, 0, progress.ModeAlways)
-	tracker.SetTotal(200)
-	tracker.AddDashboard(1)
-	tracker.Stop()
-	// Rendering happens on a ticker, so assert on the counters instead of racing
-	// the first tick.
-	if dashboards, _, _ := tracker.Counts(); dashboards != 1 {
-		t.Errorf("Counts() dashboards = %d, want 1", dashboards)
-	}
-}
-
 func TestConcurrentUpdatesAreSafe(t *testing.T) {
 	tracker := progress.New(&bytes.Buffer{}, 1000, progress.ModeAlways)
 	tracker.Start()

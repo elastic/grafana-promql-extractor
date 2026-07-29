@@ -331,6 +331,64 @@ func TestNormalizationDropsComments(t *testing.T) {
 	}
 }
 
+// A dashboard remembers the datasource type it had when it was last saved,
+// which goes stale as soon as the panel is pointed somewhere else. Grafana
+// resolves the uid at query time, so the instance's own registry has to
+// outrank the recorded type, which stays the fallback for a uid nobody knows.
+func TestRegistryOutranksTheRecordedType(t *testing.T) {
+	tests := []struct {
+		name       string
+		datasource string
+		variable   string
+		want       []string
+	}{
+		{
+			name:       "a prometheus type on a loki uid is not PromQL",
+			datasource: fmt.Sprintf(`{"type":"prometheus","uid":%q}`, testsupport.LokiUID),
+		},
+		{
+			name:       "a loki type on a prometheus uid is PromQL",
+			datasource: fmt.Sprintf(`{"type":"loki","uid":%q}`, testsupport.PrometheusUID),
+			want:       []string{"up"},
+		},
+		{
+			name:       "a datasource variable outranks the recorded type",
+			datasource: `{"type":"prometheus","uid":"${ds}"}`,
+			variable:   `{"name":"ds","type":"datasource","query":"loki"}`,
+		},
+		{
+			name:       "the recorded type resolves a uid the instance does not have",
+			datasource: `{"type":"prometheus","uid":"deleted-datasource"}`,
+			want:       []string{"up"},
+		},
+		{
+			name:       "the recorded type resolves a variable the dashboard does not declare",
+			datasource: `{"type":"prometheus","uid":"${missing}"}`,
+			want:       []string{"up"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			body := fmt.Sprintf(`{"dashboard":{"uid":"c","templating":{"list":[%s]},
+				"panels":[{"type":"timeseries","datasource":%s,
+				"targets":[{"refId":"A","expr":"up"}]}]}}`, tt.variable, tt.datasource)
+
+			env, err := extract.ParseEnvelope(strings.NewReader(body))
+			if err != nil {
+				t.Fatalf("parsing: %v", err)
+			}
+			result := defaultExtractor().Extract(env)
+
+			assertLines(t, result.Queries, tt.want)
+			if result.Stats.UnresolvedIncluded != 0 {
+				t.Errorf("UnresolvedIncluded = %d, want 0: every reference here resolves to a type",
+					result.Stats.UnresolvedIncluded)
+			}
+		})
+	}
+}
+
 func mustJSON(s string) string {
 	encoded, err := json.Marshal(s)
 	if err != nil {

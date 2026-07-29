@@ -172,20 +172,22 @@ in several ways. Resolution happens in this order:
 
 1. The target's own `datasource`, otherwise the enclosing panel's, otherwise the row's,
    otherwise the instance's default datasource.
-2. A reference carrying a concrete `type` (`{"type": "prometheus", "uid": "..."}`) is used
-   directly.
+2. `-- Mixed --` defers to the per-target references. `-- Dashboard --`, `-- Grafana --`
+   and `__expr__` never carry PromQL and are skipped, as are `logs` panels.
 3. A reference to a dashboard variable (`$datasource`, `${DS_PROMETHEUS}`) is resolved
    through the dashboard's own `templating` list, or through `__inputs` for exported
    dashboards.
 4. A literal uid or name is looked up in the instance's datasource list.
-5. `-- Mixed --` defers to the per-target references. `-- Dashboard --`, `-- Grafana --`
-   and `__expr__` never carry PromQL and are skipped, as are `logs` panels.
+5. Only when neither of those yields a type does the `type` recorded in the reference
+   itself (`{"type": "prometheus", "uid": "..."}`) decide. A uid is what Grafana resolves
+   at query time, so the live datasource list outranks a type that went stale when the
+   panel was last pointed somewhere else.
 
 Datasource types come from `/api/datasources`. Tokens that may not read that endpoint fall
 back to `/api/frontend/settings`, which exposes the same plugin types to any authenticated
 user.
 
-If a reference cannot be resolved at all, for example because it points at a deleted
+If a reference cannot be resolved at all, for example a bare uid pointing at a deleted
 datasource, the expression is kept by default and counted separately in the summary. Use
 `--include-unresolved=false` to drop those instead.
 

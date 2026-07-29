@@ -104,9 +104,6 @@ func TestRegistryDefaultFromSeparateField(t *testing.T) {
 	if got := registry.DefaultType(); got != "prometheus" {
 		t.Errorf("DefaultType() = %q, want prometheus", got)
 	}
-	if got := registry.DefaultName(); got != "Prom" {
-		t.Errorf("DefaultName() = %q, want Prom", got)
-	}
 }
 
 func TestRegistryLookupIsCaseInsensitiveFallback(t *testing.T) {

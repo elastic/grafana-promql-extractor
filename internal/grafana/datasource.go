@@ -17,7 +17,6 @@ type Registry struct {
 	lowered map[string]string
 
 	defaultType string
-	defaultName string
 
 	// Source records which endpoint the registry was loaded from.
 	Source string
@@ -47,14 +46,12 @@ func NewRegistry(datasources []Datasource, defaultRef, source string) *Registry 
 		}
 		if ds.IsDefault {
 			r.defaultType = ds.Type
-			r.defaultName = ds.Name
 		}
 	}
 	// /api/frontend/settings reports the default separately, by name or uid.
 	if r.defaultType == "" && defaultRef != "" {
 		if t, ok := r.Lookup(defaultRef); ok {
 			r.defaultType = t
-			r.defaultName = defaultRef
 		}
 	}
 	return r
@@ -89,14 +86,6 @@ func (r *Registry) DefaultType() string {
 		return ""
 	}
 	return r.defaultType
-}
-
-// DefaultName returns the name of the instance's default datasource.
-func (r *Registry) DefaultName() string {
-	if r == nil {
-		return ""
-	}
-	return r.defaultName
 }
 
 // LoadRegistry fetches the datasource list. It prefers /api/datasources, which

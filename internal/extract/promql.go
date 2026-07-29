@@ -132,7 +132,6 @@ type TypeCount struct {
 // Result is the outcome of extracting one dashboard.
 type Result struct {
 	UID     string
-	Title   string
 	Queries []string
 	Stats   Stats
 }
@@ -140,7 +139,7 @@ type Result struct {
 // Extract collects the PromQL expressions of a dashboard.
 func (e *Extractor) Extract(env *Envelope) Result {
 	dash := &env.Dashboard
-	res := Result{UID: dash.UID, Title: dash.Title}
+	res := Result{UID: dash.UID}
 	res.Stats.Dashboards = 1
 
 	var seen map[string]struct{}
@@ -259,17 +258,21 @@ func (e *Extractor) resolve(dash *Dashboard, panelRef, targetRef DatasourceRef) 
 		return "", !isMixed(ref)
 	}
 
-	if ref.Type != "" && !isGenericType(ref.Type) {
-		return ref.Type, false
-	}
-
+	// What Grafana queries is whatever the uid points at now, so a datasource
+	// the instance knows outranks the type recorded in the dashboard, which
+	// goes stale when a panel is pointed at a different datasource.
 	if name, ok := variableName(ref.Ref); ok {
-		return e.resolveVariable(dash, name), false
-	}
-	if ref.Ref != "" && e.Lookup != nil {
+		if t := e.resolveVariable(dash, name); t != "" {
+			return t, false
+		}
+	} else if ref.Ref != "" && e.Lookup != nil {
 		if t, ok := e.Lookup.Lookup(ref.Ref); ok {
 			return t, false
 		}
+	}
+
+	if ref.Type != "" && !isGenericType(ref.Type) {
+		return ref.Type, false
 	}
 	return "", false
 }

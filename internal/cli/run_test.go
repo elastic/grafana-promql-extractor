@@ -242,13 +242,17 @@ func TestFailFastStopsOnFirstError(t *testing.T) {
 	})
 	out := filepath.Join(t.TempDir(), "queries.txt")
 
-	_, err := runCLI(t, "--url", fake.URL, "-o", out, "--compress=false",
+	stderr, err := runCLI(t, "--url", fake.URL, "-o", out, "--compress=false",
 		"--concurrency", "1", "--fail-fast", "--progress", "never")
 	if err == nil {
 		t.Fatal("expected the run to fail")
 	}
 	if !strings.Contains(err.Error(), "gen-0001") {
 		t.Errorf("error should name the dashboard, got %v", err)
+	}
+	// A run cut short by an error is as resumable as an interrupted one.
+	if !strings.Contains(stderr, "--start-page 1 --append") {
+		t.Errorf("summary should say where to resume:\n%s", stderr)
 	}
 }
 
@@ -303,6 +307,31 @@ func TestReportsSkippedDatasourceTypes(t *testing.T) {
 	for _, want := range []string{"skipped by datasource", "loki", "cloudwatch"} {
 		if !strings.Contains(stderr, want) {
 			t.Errorf("summary should mention %q:\n%s", want, stderr)
+		}
+	}
+}
+
+// Every reason a target did not make it into the output is worth reporting,
+// since it is what answers "why is this dashboard missing from the file".
+func TestSummaryAccountsForEveryTarget(t *testing.T) {
+	fixtures, err := testsupport.Fixtures()
+	if err != nil {
+		t.Fatalf("loading fixtures: %v", err)
+	}
+	fake := testsupport.NewFakeGrafana(t, testsupport.FakeOptions{Dashboards: fixtures})
+	out := filepath.Join(t.TempDir(), "queries.txt")
+
+	stderr, err := runCLI(t, "--url", fake.URL, "-o", out, "--progress", "never")
+	if err != nil {
+		t.Fatalf("run failed: %v\n%s", err, stderr)
+	}
+
+	for _, want := range []string{
+		"panels visited", "targets seen", "annotation queries", "duplicates dropped",
+		"empty expressions", "logs panels", "built-in datasources", "unresolved datasource",
+	} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("summary should report %q:\n%s", want, stderr)
 		}
 	}
 }

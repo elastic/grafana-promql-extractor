@@ -23,6 +23,8 @@ const (
 
 	maxRetryDelay      = 30 * time.Second
 	errorBodyMaxLength = 512
+
+	defaultMaxIdleConns = 64
 )
 
 // Config configures a Client.
@@ -43,6 +45,11 @@ type Config struct {
 	RetryBaseDelay     time.Duration
 	InsecureSkipVerify bool
 	UserAgent          string
+
+	// MaxIdleConns caps the connections kept alive for reuse. Below the number
+	// of requests in flight, connections get closed and reopened constantly, so
+	// a caller running a worker pool should set this to the pool size.
+	MaxIdleConns int
 
 	// Logf receives warnings such as retry notices. It may be nil.
 	Logf func(format string, args ...any)
@@ -114,9 +121,15 @@ func New(cfg Config) (*Client, error) {
 	if cfg.Logf == nil {
 		cfg.Logf = func(string, ...any) {}
 	}
+	if cfg.MaxIdleConns <= 0 {
+		cfg.MaxIdleConns = defaultMaxIdleConns
+	}
 
 	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.MaxIdleConnsPerHost = 64
+	// Only ever one host, so the per-host cap is the only one that matters, but
+	// the total has to keep up with it.
+	transport.MaxIdleConnsPerHost = cfg.MaxIdleConns
+	transport.MaxIdleConns = cfg.MaxIdleConns
 	if cfg.InsecureSkipVerify {
 		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 	}
