@@ -31,7 +31,9 @@ type Options struct {
 	// at least one query. Zero writes a single file.
 	DashboardsPerFile int
 	// Append adds to existing files instead of truncating them. Concatenated
-	// gzip streams remain valid, so this works with Compress as well.
+	// gzip streams remain valid, so this works with Compress as well. A split
+	// run continues after the files already on disk rather than reopening
+	// them, so the last file of an interrupted run keeps whatever it holds.
 	Append bool
 }
 
@@ -57,6 +59,8 @@ type Writer struct {
 	current FileInfo
 	files   []FileInfo
 	line    []byte
+	// skipped counts the indexes a resumed run left to an earlier run.
+	skipped int
 }
 
 // New creates a Writer. No file is opened until the first dashboard with
@@ -121,7 +125,10 @@ func (w *Writer) sink() *bufio.Writer {
 }
 
 func (w *Writer) openNext() error {
-	path := w.pathFor(len(w.files) + 1)
+	if w.opt.Append && w.opt.DashboardsPerFile > 0 && len(w.files) == 0 {
+		w.skipped = w.existingFiles()
+	}
+	path := w.pathFor(w.skipped + len(w.files) + 1)
 	if dir := filepath.Dir(path); dir != "" && dir != "." {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return fmt.Errorf("creating output directory %s: %w", dir, err)
@@ -171,6 +178,17 @@ func (w *Writer) closeCurrent() error {
 		return fmt.Errorf("closing output file: %w", firstErr)
 	}
 	return nil
+}
+
+// existingFiles counts the output files of an earlier run, so that a resumed
+// split run continues the numbering instead of appending its results to files
+// that already cover different dashboards.
+func (w *Writer) existingFiles() int {
+	for index := 1; ; index++ {
+		if _, err := os.Stat(w.pathFor(index)); err != nil {
+			return index - 1
+		}
+	}
 }
 
 // pathFor builds the path of the nth output file. A single-file run keeps the

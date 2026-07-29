@@ -168,6 +168,55 @@ func TestResumeWithStartPageAndAppend(t *testing.T) {
 	assertSameLines(t, readLines(t, out), testsupport.ExpectedLines(dashboards))
 }
 
+// TestResumeWithSplitFilesContinuesNumbering covers the same recipe with split
+// output: the resumed run has to number its files after the ones already there,
+// or it would append dashboards to a file a consumer may have processed already.
+func TestResumeWithSplitFilesContinuesNumbering(t *testing.T) {
+	dashboards := testsupport.GeneratedFixtures(25)
+	fake := testsupport.NewFakeGrafana(t, testsupport.FakeOptions{Dashboards: dashboards})
+	dir := t.TempDir()
+	out := filepath.Join(dir, "queries.txt")
+
+	split := []string{"--url", fake.URL, "-o", out, "--compress=false",
+		"--dashboards-per-file", "4", "--page-size", "10", "--progress", "never"}
+
+	// A first run that only gets through the first page fills two files and
+	// leaves the third one half full.
+	if stderr, err := runCLI(t, append(split, "--max-dashboards", "10")...); err != nil {
+		t.Fatalf("first run failed: %v\n%s", err, stderr)
+	}
+	third := filepath.Join(dir, "queries-00003.txt")
+	beforeResume := readLines(t, third)
+	if len(distinctUIDs(beforeResume)) != 2 {
+		t.Fatalf("the first run left %d dashboards in %s, want 2",
+			len(distinctUIDs(beforeResume)), third)
+	}
+
+	if stderr, err := runCLI(t, append(split, "--start-page", "2", "--append")...); err != nil {
+		t.Fatalf("resumed run failed: %v\n%s", err, stderr)
+	}
+
+	if got := readLines(t, third); !slices.Equal(got, beforeResume) {
+		t.Errorf("%s changed from %v to %v", third, beforeResume, got)
+	}
+	var all []string
+	for i := 1; ; i++ {
+		path := filepath.Join(dir, fmt.Sprintf("queries-%05d.txt", i))
+		if _, err := os.Stat(path); err != nil {
+			if i <= 4 {
+				t.Fatalf("the resumed run wrote no %s: %v", path, err)
+			}
+			break
+		}
+		lines := readLines(t, path)
+		if uids := distinctUIDs(lines); len(uids) > 4 {
+			t.Errorf("%s holds %d dashboards, more than the limit of 4", path, len(uids))
+		}
+		all = append(all, lines...)
+	}
+	assertSameLines(t, all, testsupport.ExpectedLines(dashboards))
+}
+
 // TestViewerTokenFallback covers a token that may not read /api/datasources.
 func TestViewerTokenFallback(t *testing.T) {
 	fixtures, err := testsupport.Fixtures()

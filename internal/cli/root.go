@@ -94,7 +94,7 @@ the dashboard's own datasource variables.`),
   grafana-dashboard-extractor --max-dashboards 500 --compress=false -o sample.txt
 
   # 50k dashboards split into files of 10k dashboards each
-  grafana-dashboard-extractor --dashboards-per-file 10000 --concurrency 16
+  grafana-dashboard-extractor --dashboards-per-file 10000
 
   # Pseudonymized, so the queries can be shared outside the organization
   grafana-dashboard-extractor --anonymize -o shareable.txt`, "\n"),

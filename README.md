@@ -46,8 +46,8 @@ More examples:
 # A sample of 500 dashboards, uncompressed
 grafana-dashboard-extractor --max-dashboards 500 --compress=false -o sample.txt
 
-# Split a large instance into files of 10k dashboards each, fetching 16 in parallel
-grafana-dashboard-extractor --dashboards-per-file 10000 --concurrency 16
+# Split a large instance into files of 10k dashboards each
+grafana-dashboard-extractor --dashboards-per-file 10000
 
 # Basic auth instead of a service account token, restricted to one folder
 grafana-dashboard-extractor --user admin --password secret --folder-uid abc123
@@ -94,6 +94,10 @@ already written by combining `--start-page` with `--append`:
 ```bash
 grafana-dashboard-extractor --start-page 7 --append
 ```
+
+With `--dashboards-per-file`, the resumed run continues the numbering rather than reopening
+the last file, so files a consumer already picked up are never modified. The file the
+interrupted run was working on keeps whatever it holds and stays below the limit.
 
 ## Output format
 
@@ -152,6 +156,11 @@ Extracting 400,000 dashboards uses the same memory as extracting 50: a live heap
 1.3 MiB, with a peak of roughly 6 MiB including garbage awaiting collection. Run
 `make test-scale SCALE=50000` to reproduce the measurement.
 
+Grafana, not the extractor, sets the pace: against a local Grafana, expect a throughput of
+around 600 dashboards per second at the default concurrency. A remote instance answers
+slower, and raising `--concurrency` past the default mostly adds load rather than
+throughput. The progress line reports the rate a run actually achieves.
+
 ```mermaid
 flowchart LR
   Search["/api/search\npage by page"] -->|uid channel| Pool
@@ -204,6 +213,7 @@ make test-race         # unit tests
 make test-integration  # integration tests against a dockerized Grafana
 make test-scale        # 50k dashboard memory check
 make test-corpus       # validate against the top 1000 grafana.com dashboards
+make test-throughput   # time extracting them from a dockerized Grafana
 make test-all          # every tier that needs no third-party service
 ```
 
@@ -253,6 +263,11 @@ make test-corpus CORPUS=200      # fewer dashboards
 make clean-corpus                # drop the cache
 CORPUS_REQUEST_INTERVAL=2s make test-corpus
 ```
+
+`make test-throughput` reuses the same cache for a different question: it uploads the
+dashboards into a dockerized Grafana and times the extraction at several concurrencies,
+plain and anonymized. It needs both build tags and both prerequisites, Docker and a warm
+cache, and it fails only if the settings change what is extracted or the rate collapses.
 
 ## License
 

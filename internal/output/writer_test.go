@@ -217,6 +217,69 @@ func TestAppendedGzipStaysReadable(t *testing.T) {
 	}
 }
 
+// TestAppendContinuesSplitNumbering covers resuming a split run: the second run
+// must not write over the files of the first one, nor mix its dashboards into a
+// file that a consumer may already have processed.
+func TestAppendContinuesSplitNumbering(t *testing.T) {
+	for _, compress := range []bool{false, true} {
+		name := "plain"
+		suffix := ".txt"
+		if compress {
+			name = "compressed"
+			suffix = ".txt.gz"
+		}
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			options := output.Options{
+				Path:              filepath.Join(dir, "queries.txt"),
+				Compress:          compress,
+				DashboardsPerFile: 2,
+				Append:            true,
+			}
+
+			first := output.New(options)
+			for _, uid := range []string{"dash1", "dash2", "dash3"} {
+				mustWrite(t, first, uid, []string{uid + "_metric"})
+			}
+			if err := first.Close(); err != nil {
+				t.Fatalf("closing first run: %v", err)
+			}
+
+			second := output.New(options)
+			for _, uid := range []string{"dash4", "dash5"} {
+				mustWrite(t, second, uid, []string{uid + "_metric"})
+			}
+			if err := second.Close(); err != nil {
+				t.Fatalf("closing second run: %v", err)
+			}
+
+			read := readFile
+			if compress {
+				read = readGzip
+			}
+			wantFiles := []string{
+				"dash1;dash1_metric\ndash2;dash2_metric\n",
+				"dash3;dash3_metric\n",
+				"dash4;dash4_metric\ndash5;dash5_metric\n",
+			}
+			for i, want := range wantFiles {
+				path := filepath.Join(dir, fmt.Sprintf("queries-%05d%s", i+1, suffix))
+				if got := read(t, path); got != want {
+					t.Errorf("%s = %q, want %q", filepath.Base(path), got, want)
+				}
+			}
+			if _, err := os.Stat(filepath.Join(dir, "queries-00004"+suffix)); err == nil {
+				t.Error("the second run wrote more files than it had dashboards for")
+			}
+
+			files := second.Files()
+			if len(files) != 1 || filepath.Base(files[0].Path) != "queries-00003"+suffix {
+				t.Errorf("second run reported %+v, want only queries-00003%s", files, suffix)
+			}
+		})
+	}
+}
+
 func TestCreatesParentDirectories(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "nested", "deeper", "queries.txt")

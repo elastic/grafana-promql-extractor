@@ -138,7 +138,12 @@ func Start(t *testing.T, generatedCount int) *Instance {
 		URL:       fmt.Sprintf("http://%s:%s", host, port.Port()),
 		Fixtures:  fixtures,
 		Generated: testsupport.GeneratedFixtures(generatedCount),
-		client:    &http.Client{Timeout: 30 * time.Second},
+		// Provisioning can run concurrently, so pool more than the two
+		// connections per host the default transport keeps.
+		client: &http.Client{
+			Timeout:   30 * time.Second,
+			Transport: &http.Transport{MaxIdleConnsPerHost: 16},
+		},
 	}
 
 	instance.createFolder(t)
@@ -313,24 +318,38 @@ func (i *Instance) createViewerToken(t *testing.T) string {
 func (i *Instance) post(t *testing.T, path string, payload any) (int, []byte) {
 	t.Helper()
 
+	status, response, err := i.postJSON(path, payload)
+	if err != nil {
+		t.Fatalf("POST %s: %v", path, err)
+	}
+	return status, response
+}
+
+// postJSON returns the error instead of failing the test, so that callers can
+// post concurrently, where t.Fatalf is not allowed.
+func (i *Instance) postJSON(path string, payload any) (int, []byte, error) {
 	body, err := json.Marshal(payload)
 	if err != nil {
-		t.Fatalf("encoding request: %v", err)
+		return 0, nil, fmt.Errorf("encoding request: %w", err)
 	}
-	req := i.request(t, http.MethodPost, path, bytes.NewReader(body))
+	req, err := http.NewRequest(http.MethodPost, i.URL+path, bytes.NewReader(body))
+	if err != nil {
+		return 0, nil, err
+	}
+	req.SetBasicAuth(adminUser, adminPassword)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := i.client.Do(req)
 	if err != nil {
-		t.Fatalf("POST %s: %v", path, err)
+		return 0, nil, err
 	}
 	defer resp.Body.Close()
 
 	response, err := io.ReadAll(resp.Body)
 	if err != nil {
-		t.Fatalf("reading response of POST %s: %v", path, err)
+		return resp.StatusCode, nil, fmt.Errorf("reading response: %w", err)
 	}
-	return resp.StatusCode, response
+	return resp.StatusCode, response, nil
 }
 
 func (i *Instance) request(t *testing.T, method, path string, body io.Reader) *http.Request {

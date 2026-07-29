@@ -251,6 +251,7 @@ func loadCatalog(t *testing.T, c *client, opts Options) []Entry {
 	t.Helper()
 
 	var entries []Entry
+	seen := make(map[int]bool)
 	for page := 1; len(entries) < opts.Dashboards; page++ {
 		path := filepath.Join(opts.CacheDir, fmt.Sprintf("catalog-page-%03d.json", page))
 
@@ -277,7 +278,16 @@ func loadCatalog(t *testing.T, c *client, opts Options) []Entry {
 			break
 		}
 
-		entries = append(entries, response.Items...)
+		// grafana.com ranks by a download count that keeps moving while the
+		// pages are fetched, so a dashboard can show up on two of them. Keeping
+		// the first occurrence makes the corpus a set of distinct dashboards.
+		for _, item := range response.Items {
+			if seen[item.ID] {
+				continue
+			}
+			seen[item.ID] = true
+			entries = append(entries, item)
+		}
 		if page >= response.Pages {
 			break
 		}
