@@ -9,10 +9,12 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -43,10 +45,10 @@ func TestCorpusThroughput(t *testing.T) {
 
 	instance := Start(t, 0)
 	uploadStart := time.Now()
-	uploaded := instance.uploadCorpus(t, dashboards, FolderUID)
+	uploaded := len(instance.uploadCorpus(t, dashboards, FolderUID))
 	upload := time.Since(uploadStart)
-	// Bulk listing covers the whole instance, so the measurement does too,
-	// fixtures included, and every run sees the same set.
+	// Reading dashboards in pages covers the whole instance, so the
+	// measurement does too, fixtures included, and every run sees the same set.
 	searchable := instance.waitForSearchable(t, len(instance.All())+uploaded)
 	t.Logf("provisioned %d of %d dashboards in %s, %d dashboards listed in total",
 		uploaded, len(dashboards), upload.Round(time.Millisecond), searchable)
@@ -87,8 +89,8 @@ func TestCorpusThroughput(t *testing.T) {
 		if r.repaired > 0 {
 			note = fmt.Sprintf("  (%d fetched one by one after Grafana skipped them)", r.repaired)
 		}
-		t.Logf("  %-20s %8s  %5.0f dashboards/s  %6d queries  ~%s for %d dashboards%s",
-			r.label, r.elapsed.Round(10*time.Millisecond), r.rate(), r.queries,
+		t.Logf("  %-20s %8s  %5.0f dashboards/s  %6d queries  %5.1f MiB peak heap  ~%s for %d dashboards%s",
+			r.label, r.elapsed.Round(10*time.Millisecond), r.rate(), r.queries, r.peakMiB,
 			projected.Round(time.Second), projectedSize, note)
 	}
 
@@ -127,6 +129,9 @@ type measurement struct {
 	// repaired is how many dashboards Grafana left out of its pages and the
 	// run fetched one by one instead.
 	repaired int
+	// peakMiB is the largest heap seen during the run, the fake-free part of
+	// which is the extractor and the documents in flight.
+	peakMiB float64
 	// plain marks a run whose queries can be compared with another run's,
 	// which pseudonymized ones cannot.
 	plain bool
@@ -154,9 +159,11 @@ func (i *Instance) measure(t *testing.T, label string, concurrency int, extra ..
 		"--concurrency", strconv.Itoa(concurrency),
 	}, extra...)
 
+	stopSampling, peak := sampleHeap(t)
 	start := time.Now()
 	stderr, err := execute(t, args...)
 	elapsed := time.Since(start)
+	stopSampling()
 	t.Logf("%s (concurrency %d) took %s\n%s", label, concurrency, elapsed.Round(time.Millisecond), stderr)
 	if err != nil {
 		return measurement{}, err
@@ -176,8 +183,45 @@ func (i *Instance) measure(t *testing.T, label string, concurrency int, extra ..
 		dashboards: summaryCount(t, processedPattern, stderr),
 		queries:    summaryCount(t, queriesPattern, stderr),
 		repaired:   repaired,
+		peakMiB:    float64(peak.Load()) / (1 << 20),
 		plain:      !slices.Contains(extra, "--anonymize"),
 	}, nil
+}
+
+// sampleHeap records the largest heap seen until the returned function is
+// called. Community dashboards are far bigger than the synthetic ones the scale
+// test uses, and a page carries a batch of them at once, so what a page costs
+// can only be seen on documents this size.
+func sampleHeap(t *testing.T) (stop func(), peak *atomic.Uint64) {
+	t.Helper()
+
+	peak = &atomic.Uint64{}
+	done := make(chan struct{})
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		ticker := time.NewTicker(10 * time.Millisecond)
+		defer ticker.Stop()
+		var stats runtime.MemStats
+		for {
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+				runtime.ReadMemStats(&stats)
+				for {
+					current := peak.Load()
+					if stats.HeapAlloc <= current || peak.CompareAndSwap(current, stats.HeapAlloc) {
+						break
+					}
+				}
+			}
+		}
+	}()
+	return func() {
+		close(done)
+		<-finished
+	}, peak
 }
 
 // reportDifferences names the dashboards two runs disagree about, since a bare
@@ -302,15 +346,17 @@ func (i *Instance) searchableCount(t *testing.T) int {
 	return len(hits)
 }
 
-// uploadCorpus stores every dashboard in folderUID and returns how many landed.
-// Community dashboards are written for a range of Grafana versions, so the ones
-// the instance under test rejects are reported and skipped rather than failing
-// the measurement.
-func (i *Instance) uploadCorpus(t *testing.T, dashboards []corpus.Dashboard, folderUID string) int {
+// uploadCorpus stores every dashboard in folderUID and returns the uids that
+// landed. Community dashboards are written for a range of Grafana versions, so
+// the ones the instance under test rejects are reported and left out rather
+// than failing the test; which ones those were matters to a caller comparing
+// one release against another.
+func (i *Instance) uploadCorpus(t *testing.T, dashboards []corpus.Dashboard, folderUID string) map[string]bool {
 	t.Helper()
 
 	var (
 		mu       sync.Mutex
+		stored   = make(map[string]bool, len(dashboards))
 		rejected []string
 		wg       sync.WaitGroup
 	)
@@ -320,11 +366,14 @@ func (i *Instance) uploadCorpus(t *testing.T, dashboards []corpus.Dashboard, fol
 		go func() {
 			defer wg.Done()
 			for dashboard := range queue {
-				if err := i.uploadDocument(dashboard.JSON, folderUID); err != nil {
-					mu.Lock()
+				uid, err := i.uploadDocument(dashboard.JSON, folderUID)
+				mu.Lock()
+				if err != nil {
 					rejected = append(rejected, fmt.Sprintf("%s: %v", dashboard.URL(), err))
-					mu.Unlock()
+				} else {
+					stored[uid] = true
 				}
+				mu.Unlock()
 			}
 		}()
 	}
@@ -337,16 +386,17 @@ func (i *Instance) uploadCorpus(t *testing.T, dashboards []corpus.Dashboard, fol
 	for _, reason := range rejected {
 		t.Logf("Grafana rejected %s", reason)
 	}
-	return len(dashboards) - len(rejected)
+	return stored
 }
 
 // uploadDocument stores one dashboard document as it is, apart from the two
 // fields Grafana owns: the numeric id it assigns itself, and the title, which
 // has to be unique within a folder and is not something the extractor reads.
-func (i *Instance) uploadDocument(document []byte, folderUID string) error {
+// It returns the uid the dashboard is stored under.
+func (i *Instance) uploadDocument(document []byte, folderUID string) (string, error) {
 	var dashboard map[string]any
 	if err := json.Unmarshal(document, &dashboard); err != nil {
-		return fmt.Errorf("decoding dashboard: %w", err)
+		return "", fmt.Errorf("decoding dashboard: %w", err)
 	}
 	delete(dashboard, "id")
 	uid, _ := dashboard["uid"].(string)
@@ -360,12 +410,12 @@ func (i *Instance) uploadDocument(document []byte, folderUID string) error {
 
 	status, response, err := i.postJSON("/api/dashboards/db", payload)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if status != http.StatusOK {
-		return fmt.Errorf("status %d: %s", status, firstLine(response))
+		return "", fmt.Errorf("status %d: %s", status, firstLine(response))
 	}
-	return nil
+	return uid, nil
 }
 
 // firstLine keeps a rejection readable when Grafana answers with a page instead

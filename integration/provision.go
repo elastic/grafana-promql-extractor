@@ -72,9 +72,16 @@ func image() string {
 	return defaultImage
 }
 
-// Start boots Grafana, provisions datasources and dashboards, and mints a
-// Viewer service account token. The container is terminated on test cleanup.
+// Start boots the Grafana under test, provisions datasources and dashboards,
+// and mints a Viewer service account token. The container is terminated on test
+// cleanup.
 func Start(t *testing.T, generatedCount int) *Instance {
+	t.Helper()
+	return StartImage(t, image(), generatedCount)
+}
+
+// StartImage is Start against a named release, for tests that cover several.
+func StartImage(t *testing.T, image string, generatedCount int) *Instance {
 	t.Helper()
 	requireDocker(t)
 
@@ -83,7 +90,7 @@ func Start(t *testing.T, generatedCount int) *Instance {
 
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: testcontainers.ContainerRequest{
-			Image:        image(),
+			Image:        image,
 			ExposedPorts: []string{grafanaPort},
 			Env: map[string]string{
 				"GF_SECURITY_ADMIN_USER":         adminUser,
@@ -112,7 +119,7 @@ func Start(t *testing.T, generatedCount int) *Instance {
 		Started: true,
 	})
 	if err != nil {
-		t.Fatalf("starting Grafana %s: %v", image(), err)
+		t.Fatalf("starting Grafana %s: %v", image, err)
 	}
 	t.Cleanup(func() {
 		if err := container.Terminate(context.Background()); err != nil {
@@ -146,6 +153,7 @@ func Start(t *testing.T, generatedCount int) *Instance {
 		},
 	}
 
+	instance.waitForAPI(t)
 	instance.createFolder(t)
 	for _, fixture := range instance.Fixtures {
 		instance.uploadDashboard(t, fixture, "")
@@ -157,6 +165,34 @@ func Start(t *testing.T, generatedCount int) *Instance {
 	instance.ViewerToken = instance.createViewerToken(t)
 
 	return instance
+}
+
+// waitForAPI blocks until Grafana answers an authenticated request. A healthy
+// database is not the same as a working instance: some releases report health
+// while still starting, and then leave the first real request waiting past the
+// client timeout, which looks like a failed test rather than a slow boot.
+func (i *Instance) waitForAPI(t *testing.T) {
+	t.Helper()
+
+	probe := &http.Client{Timeout: 5 * time.Second}
+	deadline := time.Now().Add(startupTimeout)
+	for attempt := 1; ; attempt++ {
+		resp, err := probe.Do(i.request(t, http.MethodGet, "/api/search?limit=1", nil))
+		if err == nil {
+			resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				if attempt > 1 {
+					t.Logf("Grafana answered its first request on attempt %d", attempt)
+				}
+				return
+			}
+			err = fmt.Errorf("status %d", resp.StatusCode)
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("Grafana did not answer within %s: %v", startupTimeout, err)
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
 }
 
 // URLWithoutDatasourcesAPI returns a proxy in front of Grafana that rejects

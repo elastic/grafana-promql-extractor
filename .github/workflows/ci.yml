@@ -46,9 +46,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # A pinned release for reproducibility, plus latest to catch API drift.
+        # One release per major line the tool supports, plus latest to catch API
+        # drift: the last before dashboards could be read a page at a time, the
+        # one that introduced it, and the current one.
         grafana:
           - "11.6.6"
+          - "12.4.0"
+          - "13.0.1"
           - "latest"
     steps:
       - uses: actions/checkout@v4

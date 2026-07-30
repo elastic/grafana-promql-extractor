@@ -8,8 +8,10 @@ SCALE ?= 50000
 GRAFANA_IMAGE ?= grafana/grafana:latest
 # Number of community dashboards the corpus test validates against.
 CORPUS ?= 1000
+# Number of community dashboards each release gets in the cross-version test.
+VERSION_CORPUS ?= 250
 
-.PHONY: help build install test test-race test-integration test-scale test-corpus test-throughput test-all fmt vet lint snapshot clean clean-corpus
+.PHONY: help build install test test-race test-integration test-versions test-scale test-corpus test-throughput test-all fmt vet lint snapshot clean clean-corpus
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -28,6 +30,10 @@ test-race: ## Run unit tests with the race detector
 
 test-integration: ## Run integration tests against a dockerized Grafana
 	GRAFANA_IMAGE=$(GRAFANA_IMAGE) go test -tags=integration -timeout 15m -v ./integration/
+
+test-versions: ## Store community dashboards in Grafana 11, 12 and 13 and compare what comes out
+	CORPUS_DASHBOARDS=$(VERSION_CORPUS) \
+		go test -tags="integration corpus" -count=1 -timeout 30m -v -run TestCorpusAcrossVersions ./integration/
 
 test-scale: ## Extract SCALE synthetic dashboards and check memory stays flat
 	EXTRACTOR_SCALE_DASHBOARDS=$(SCALE) go test -timeout 15m -v -run TestScale ./internal/cli/

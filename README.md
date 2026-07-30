@@ -155,9 +155,13 @@ Dashboards are enumerated page by page and fetched by a worker pool that feeds a
 writer, so only `--concurrency` dashboard documents exist in memory at any moment.
 Extracting 400,000 dashboards one by one uses the same memory as extracting 50: a live heap
 of about 1.3 MiB, with a peak of roughly 6 MiB including garbage awaiting collection.
-Reading them [in pages](#reading-dashboards-in-pages) adds one uid per dashboard, held until
-the run can check what the pages left out, which raises the peak by about 12 MiB for 50,000
-dashboards and 47 MiB for 400,000. Run `make test-scale SCALE=50000` to reproduce the measurement.
+Reading them [in pages](#reading-dashboards-in-pages) costs two things more. A page carries
+whole documents rather than uids, so a bounded number of them is in flight instead of being
+streamed straight into the parser: over the thousand most downloaded community dashboards,
+which average 61 KiB and reach 1.3 MiB, that took the peak from 4.7 to 9.5 MiB. It also
+remembers one uid per dashboard until it can check what the pages left out, which adds about
+12 MiB for 50,000 dashboards and 47 MiB for 400,000. Neither grows with the page size.
+Run `make test-scale SCALE=50000` and `make test-throughput` to reproduce the measurements.
 
 Grafana, not the extractor, sets the pace: against a local Grafana, expect a throughput of
 around 600 dashboards per second at the default concurrency, and around 800 where whole
@@ -248,6 +252,7 @@ as well.
 make build             # build ./bin/grafana-dashboard-extractor
 make test-race         # unit tests
 make test-integration  # integration tests against a dockerized Grafana
+make test-versions     # real dashboards through Grafana 11, 12 and 13
 make test-scale        # 50k dashboard memory check
 make test-corpus       # validate against the top 1000 grafana.com dashboards
 make test-throughput   # time extracting them from a dockerized Grafana
@@ -303,8 +308,16 @@ CORPUS_REQUEST_INTERVAL=2s make test-corpus
 
 `make test-throughput` reuses the same cache for a different question: it uploads the
 dashboards into a dockerized Grafana and times the extraction at several concurrencies,
-plain and anonymized. It needs both build tags and both prerequisites, Docker and a warm
-cache, and it fails only if the settings change what is extracted or the rate collapses.
+plain and anonymized, recording peak heap for each. It needs both build tags and both
+prerequisites, Docker and a warm cache, and it fails only if the settings change what is
+extracted or the rate collapses.
+
+`make test-versions` answers a third: it stores community dashboards in Grafana 11.6.6,
+12.4.0 and 13.0.1 in turn and checks that all three yield the same queries, read whichever
+way each release allows. A fake serves back whatever it was given, so it cannot show what a
+release does to a dashboard between saving it and serving it again; only real releases can,
+and only they can show that reading dashboards a page at a time gets the same result as
+fetching them one by one on the releases that offer both.
 
 ## License
 

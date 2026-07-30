@@ -16,6 +16,7 @@ make test   # unit tests, a few seconds
 | --- | --- | --- |
 | `make test`, `make test-race` | nothing | every change |
 | `make test-integration` | Docker | changes to the Grafana client, search paging or datasource resolution |
+| `make test-versions` | Docker and a warm corpus cache | changes to how dashboards are read or stored |
 | `make test-scale` | a minute | changes to the pipeline or the writer |
 | `make test-corpus` | grafana.com, once | changes to extraction or anonymization |
 | `make test-throughput` | Docker and a warm corpus cache | only when timings are asked for |
@@ -34,10 +35,18 @@ run reads the cache and touches no network. Do not run this tier in CI, and do n
 CORPUS=200` is the quick version. The full report and the extracted queries are left in the
 cache directory for inspection.
 
+**Cross-version tests** (`make test-versions`, both tags) store real community dashboards in
+Grafana 11.6.6, 12.4.0 and 13.0.1 in turn and check that all three yield the same queries,
+read whichever way each release allows. This is the only test that covers what a release
+does to a dashboard between saving it and serving it back, so run it after touching the
+Grafana client, the bulk listing or datasource resolution. It takes about half a minute and
+needs the corpus cache.
+
 **Throughput tests** need both tags and both prerequisites: they upload the cached corpus
 into a dockerized Grafana and time the extraction, so `make test-corpus` has to have filled
 the cache first. They also compare the two ways of reading dashboards over a thousand real
-ones, which is the only place that parity is checked against a real instance.
+ones, and record peak heap, which synthetic dashboards say nothing about because real ones
+are two orders of magnitude larger.
 
 ## The bulk listing
 
