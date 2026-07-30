@@ -32,12 +32,20 @@ type pipeline struct {
 	list grafana.ListOptions
 	// bulk enumerates whole dashboards instead of fetching them one by one.
 	bulk bool
+	// verify checks a listing against /api/search afterwards and fetches
+	// whatever it left out.
+	verify bool
 
 	// concurrency is how many dashboards are fetched at once.
 	concurrency int
 	// failFast aborts the run on the first dashboard that cannot be fetched,
 	// instead of counting it and moving on.
 	failFast bool
+
+	// enumerated and repaired report what the check after a listing found.
+	// They are written by the producer and read once the run is over.
+	enumerated int
+	repaired   int
 }
 
 // job is one dashboard on its way through the pipeline. A search-based run
@@ -68,13 +76,7 @@ func (p *pipeline) run(ctx context.Context) (extract.Stats, error) {
 			}
 		}
 		if p.bulk {
-			return p.client.ListDashboards(ctx, p.list, func(doc grafana.DashboardDocument) error {
-				// The document is only valid until the next one is decoded,
-				// and it outlives this call in the channel. A dashboard the
-				// listing named but did not carry arrives without one, and
-				// the worker fetches that one by uid.
-				return send(job{uid: doc.UID, document: bytes.Clone(doc.Document)})
-			})
+			return p.listDashboards(ctx, send)
 		}
 		return p.client.SearchDashboards(ctx, p.search, func(hit grafana.DashboardHit) error {
 			return send(job{uid: hit.UID, title: hit.Title})
@@ -130,6 +132,60 @@ func (p *pipeline) run(ctx context.Context) (extract.Stats, error) {
 	// this one, and a return statement may evaluate stats before the call.
 	err := group.Wait()
 	return stats, err
+}
+
+// listDashboards reads whole dashboards in pages and then, unless the run is a
+// sample or a resumed one, picks up whatever the pages left out.
+func (p *pipeline) listDashboards(ctx context.Context, send func(job) error) error {
+	// Grafana assembles a page by reading a batch of dashboards and checking
+	// which of them the caller may see, and when that check fails it drops the
+	// whole batch while still answering 200. Remembering what arrived is what
+	// makes the difference visible afterwards; a uid is a few dozen bytes, so
+	// even a very large instance costs a few megabytes for the length of the
+	// run.
+	delivered := make(map[string]struct{})
+	err := p.client.ListDashboards(ctx, p.list, func(doc grafana.DashboardDocument) error {
+		delivered[doc.UID] = struct{}{}
+		// The document is only valid until the next one is decoded, and it
+		// outlives this call in the channel. A dashboard the listing named but
+		// did not carry arrives without one, and the worker fetches that one
+		// by uid.
+		return send(job{uid: doc.UID, document: bytes.Clone(doc.Document)})
+	})
+	if err != nil || !p.verify {
+		return err
+	}
+	return p.fetchMissing(ctx, delivered, send)
+}
+
+// fetchMissing asks /api/search what the instance holds and hands over every
+// dashboard the listing did not deliver. Search answers from a different code
+// path, one that has not been seen to lose dashboards, so a page Grafana
+// dropped costs the run the time to fetch those dashboards one by one rather
+// than the queries in them.
+func (p *pipeline) fetchMissing(ctx context.Context, delivered map[string]struct{}, send func(job) error) error {
+	enumerate := p.search
+	enumerate.OnPage = nil
+	enumerate.Max = 0
+	enumerate.StartPage = 0
+	enumerate.PageSize = grafana.MaxPageSize
+
+	err := p.client.SearchDashboards(ctx, enumerate, func(hit grafana.DashboardHit) error {
+		p.enumerated++
+		if _, ok := delivered[hit.UID]; ok {
+			return nil
+		}
+		p.repaired++
+		return send(job{uid: hit.UID, title: hit.Title})
+	})
+	if err != nil {
+		return fmt.Errorf("checking the listing against what the instance holds: %w", err)
+	}
+	if p.repaired > 0 {
+		p.log.warnf("Grafana left %s out of the pages it returned; fetching those one by one",
+			count(p.repaired, "dashboard", "dashboards"))
+	}
+	return nil
 }
 
 // process turns one job into queries, downloading the dashboard first unless

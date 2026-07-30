@@ -11,12 +11,19 @@ import (
 	"github.com/felixbarny/grafana-dashboard-extractor/internal/progress"
 )
 
+// expectation is what the run knew about the instance beyond what it processed.
+type expectation struct {
+	// counted is what --precount found before the run, and zero when nothing
+	// was counted.
+	counted int
+	// repaired is how many dashboards the pages left out and were fetched one
+	// by one afterwards.
+	repaired int
+}
+
 // summary reports what the run produced. Every count but the first is left out
 // when it is zero, so the block stays as short as the run was uneventful.
-//
-// counted is what the run expected to process, from --precount, and zero when
-// nothing counted beforehand.
-func summary(out io.Writer, tracker *progress.Tracker, stats extract.Stats, files []output.FileInfo, counted int) {
+func summary(out io.Writer, tracker *progress.Tracker, stats extract.Stats, files []output.FileInfo, expected expectation) {
 	dashboards, queries, failures := tracker.Counts()
 	fmt.Fprintf(out, "\nProcessed %s in %s\n",
 		count(dashboards, "dashboard", "dashboards"), tracker.Elapsed().Round(time.Millisecond))
@@ -49,12 +56,15 @@ func summary(out io.Writer, tracker *progress.Tracker, stats extract.Stats, file
 	counts.addIf(stats.PartialDecodes > 0, "partially decoded", "%s",
 		count(stats.PartialDecodes, "dashboard", "dashboards"))
 	counts.addIf(failures > 0, "failed dashboards", "%s (re-run with --verbose to see why)", humanInt(failures))
+	counts.addIf(expected.repaired > 0, "left out of the pages",
+		"%s, fetched one by one instead", humanInt(expected.repaired))
 	counts.write(out)
 
 	// Enumeration walks an instance that may change underneath it, and an
 	// answer that comes up short is indistinguishable from the end of the
 	// dashboards, so the count taken beforehand is the only thing that can
 	// notice.
+	counted := expected.counted
 	if missing := counted - dashboards - failures; counted > 0 && missing > 0 {
 		fmt.Fprintf(out, "  %s of the %s counted before the run were never delivered by Grafana. "+
 			"Dashboards deleted while the run was going explain some; otherwise re-run to pick up the rest.\n",

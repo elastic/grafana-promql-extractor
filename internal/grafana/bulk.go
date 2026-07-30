@@ -27,6 +27,9 @@ const (
 	// BulkPageSize is the page size asked for. Grafana caps a page well below
 	// this, so the value only matters for instances that allow more.
 	BulkPageSize = 500
+	// dashboardListKind is what the collection calls itself, and the one part
+	// of an empty reply that still says the endpoint is the right one.
+	dashboardListKind = "DashboardList"
 )
 
 // DashboardDocument is one dashboard from a bulk listing: the uid Grafana knows
@@ -61,18 +64,20 @@ func (o ListOptions) pageSize() int {
 	return o.PageSize
 }
 
-// BulkAvailable reports whether this instance serves dashboards in bulk.
+// BulkAvailable reports whether this instance serves dashboards in bulk. It
+// asks for one dashboard; releases before Grafana 12 answer 404.
 //
-// It asks for one dashboard. Releases before Grafana 12 answer 404. A release
-// that knows the endpoint but returns nothing is either empty or keeps its
-// dashboards in a namespace this client cannot name, and since a namespace
-// nobody has heard of yields an empty list rather than an error, an empty
-// answer is treated as a reason to stay with the search API, which needs no
-// namespace at all.
+// What the answer contains does not matter, only that it is a dashboard list.
+// An empty one means the instance is empty, or that its dashboards live in a
+// namespace this client cannot name, or that the page came back empty for the
+// reason pages do; the caller cannot tell those apart and does not need to,
+// because it checks a listing against /api/search afterwards either way. The
+// cost of guessing wrong is a listing that yields nothing and a run that
+// fetches every dashboard by uid, which is where it would have started.
 func (c *Client) BulkAvailable(ctx context.Context) (bool, error) {
 	q := url.Values{"limit": []string{"1"}}
 	var page struct {
-		Items []json.RawMessage `json:"items"`
+		Kind string `json:"kind"`
 	}
 	if err := c.GetJSON(ctx, c.bulkPath(), q, &page); err != nil {
 		if IsStatus(err, http.StatusNotFound, http.StatusForbidden, http.StatusUnauthorized,
@@ -82,7 +87,12 @@ func (c *Client) BulkAvailable(ctx context.Context) (bool, error) {
 		}
 		return false, err
 	}
-	return len(page.Items) > 0, nil
+	if page.Kind != dashboardListKind {
+		c.cfg.Logf("the dashboard collection answered with %q rather than a %s",
+			page.Kind, dashboardListKind)
+		return false, nil
+	}
+	return true, nil
 }
 
 // ListDashboards streams whole dashboards, page by page. Pages are chained by

@@ -113,7 +113,7 @@ func NewFakeGrafana(t *testing.T, opts FakeOptions) *FakeGrafana {
 	mux.HandleFunc("/api/health", fake.handleHealth)
 	mux.HandleFunc("/api/datasources", fake.handleDatasources)
 	mux.HandleFunc("/api/frontend/settings", fake.handleFrontendSettings)
-	mux.HandleFunc("/api/search", fake.handleSearch)
+	mux.HandleFunc(SearchRoute, fake.handleSearch)
 	mux.HandleFunc("/api/dashboards/uid/", fake.handleDashboard)
 	mux.HandleFunc(BulkRoute, fake.handleBulk)
 
@@ -140,6 +140,9 @@ func (f *FakeGrafana) LastSearchQuery(param string) string {
 // DashboardRoute is the key request counts are recorded under for dashboard
 // fetches, so that counting stays bounded when serving many dashboards.
 const DashboardRoute = "/api/dashboards/uid/"
+
+// SearchRoute is where dashboards are enumerated.
+const SearchRoute = "/api/search"
 
 func routeKey(path string) string {
 	switch {

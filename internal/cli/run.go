@@ -117,15 +117,21 @@ func run(cmd *cobra.Command, opts *options) error {
 		log.debugf("fetching dashboards one by one")
 	}
 
+	// A listing is checked against the instance once it is done, which a run
+	// that only wants a sample has no use for, and a resumed one cannot do:
+	// the dashboards before the token were delivered by the earlier run, and
+	// this one has no way of knowing which those were.
+	verify := bulk && opts.maxDashboards == 0 && opts.continueToken == ""
+	if bulk && !verify {
+		log.warnf("a listing cannot be checked against the instance when it is %s, "+
+			"so dashboards Grafana leaves out of a page will be missing from the output",
+			listingLimitedBy(opts))
+	}
+
 	total := opts.maxDashboards
 	// counted stays zero unless the dashboards were actually counted, which is
-	// what makes it worth comparing the run against afterwards. A bulk run
-	// counts them whatever the settings say, since the count is the only thing
-	// that can tell a complete listing from one that quietly skipped a batch.
+	// what makes it worth comparing the run against afterwards.
 	countFirst := opts.precount && mode != progress.ModeNever
-	if bulk && opts.continueToken == "" {
-		countFirst = true
-	}
 	counted := 0
 	if total == 0 && countFirst {
 		log.debugf("counting dashboards")
@@ -169,6 +175,7 @@ func run(cmd *cobra.Command, opts *options) error {
 		search:      searchOpts,
 		list:        listOpts,
 		bulk:        bulk,
+		verify:      verify,
 		concurrency: opts.concurrency,
 		failFast:    opts.failFast,
 	}
@@ -178,7 +185,10 @@ func run(cmd *cobra.Command, opts *options) error {
 	closeErr := writer.Close()
 	tracker.Stop()
 
-	summary(cmd.ErrOrStderr(), tracker, stats, writer.Files(), counted)
+	summary(cmd.ErrOrStderr(), tracker, stats, writer.Files(), expectation{
+		counted:  counted,
+		repaired: extraction.repaired,
+	})
 	interrupted := errors.Is(runErr, context.Canceled) || ctx.Err() != nil
 	if runErr != nil {
 		resumeHint(cmd.ErrOrStderr(), resumePosition{
@@ -197,16 +207,24 @@ func run(cmd *cobra.Command, opts *options) error {
 		}
 		return runErr
 	}
-	// A listing that skipped a batch ends like a complete one, so the run has
-	// to say that the output is short rather than leave it to be discovered
-	// during the analysis it feeds.
-	if delivered, _, failed := tracker.Counts(); bulk && counted > delivered+failed {
-		return fmt.Errorf("Grafana listed %s of the %s it holds and gave no reason; "+
-			"re-run with --bulk off to fetch them one by one",
+	// Whatever the pages left out was handed to the workers afterwards, so a
+	// dashboard still missing here got past both, and the output is short in a
+	// way this run cannot account for.
+	if delivered, _, failed := tracker.Counts(); verify && extraction.enumerated > delivered+failed {
+		return fmt.Errorf("Grafana delivered %s of the %s it holds, and fetching the rest did not "+
+			"make up the difference; re-run with --bulk off to fetch them one by one",
 			count(delivered+failed, "dashboard", "dashboards"),
-			count(counted, "dashboard", "dashboards"))
+			count(extraction.enumerated, "dashboard", "dashboards"))
 	}
 	return nil
+}
+
+// listingLimitedBy names why a listing has to be taken at its word.
+func listingLimitedBy(opts *options) string {
+	if opts.continueToken != "" {
+		return "resumed with --continue-token"
+	}
+	return "cut short by --max-dashboards"
 }
 
 // bulk modes.
@@ -216,17 +234,15 @@ const (
 	bulkOff  = "off"
 )
 
-// chooseBulk decides how dashboards are enumerated. Listing them in pages
+// chooseBulk decides how dashboards are enumerated. Reading them in pages
 // returns whole dashboards, which turns one request per dashboard into one per
 // page, but Grafana only serves it from version 12, it cannot filter, and its
 // paging is a chain of tokens rather than numbered pages.
 //
-// It is off by default for a fourth reason: a page is assembled by reading a
-// batch of dashboards and then checking what the caller may see, and when that
-// check fails, as it does on a busy instance, the batch is left out of the page
-// while the position moves past it. The reply still says 200, so a listing can
-// come back short without anything looking wrong, which is why a run that uses
-// it counts the dashboards first and refuses to call itself complete.
+// Pages can also come back missing a batch of dashboards while still answering
+// 200, so a run that uses them checks the result against /api/search afterwards
+// and fetches whatever was left out. That makes the fast path safe to take
+// without being asked, which is why the default is auto.
 func chooseBulk(ctx context.Context, client *grafana.Client, opts *options, log *logger) (bool, error) {
 	mode := opts.bulk
 	// A continue token means nothing to the search API, so anything but a
@@ -248,8 +264,7 @@ func chooseBulk(ctx context.Context, client *grafana.Client, opts *options, log 
 			return false, err
 		}
 		if !available {
-			return false, fmt.Errorf("--bulk=on, but %w; it needs Grafana 12 or later, "+
-				"and an instance that holds at least one dashboard for this organization",
+			return false, fmt.Errorf("--bulk=on, but %w; it needs Grafana 12 or later",
 				grafana.ErrBulkUnavailable)
 		}
 		return true, nil

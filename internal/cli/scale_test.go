@@ -19,6 +19,11 @@ import (
 // than fit in memory at once. It is opt-in because it takes a while:
 //
 //	EXTRACTOR_SCALE_DASHBOARDS=50000 go test ./internal/cli/ -run TestScale -v
+//
+// Both ways of reading dashboards are measured. Fetching them one by one keeps
+// nothing per dashboard; reading them in pages remembers a uid for each, to
+// know afterwards which ones the pages left out, and that is the only thing in
+// the tool that grows with the size of the instance.
 func TestScale(t *testing.T) {
 	raw := os.Getenv("EXTRACTOR_SCALE_DASHBOARDS")
 	if raw == "" {
@@ -29,58 +34,72 @@ func TestScale(t *testing.T) {
 		t.Fatalf("EXTRACTOR_SCALE_DASHBOARDS=%q is not a positive number", raw)
 	}
 
-	fake := testsupport.NewFakeGrafana(t, testsupport.FakeOptions{SyntheticDashboards: total})
-	out := filepath.Join(t.TempDir(), "queries.txt")
+	for _, tc := range []struct {
+		name string
+		bulk string
+		// maxLive bounds the heap held at the end of the run. Fetching one by
+		// one retains nothing; pages retain a uid per dashboard, so the bound
+		// grows with the instance, at a budget of 100 bytes each.
+		maxLive func(total int) float64
+	}{
+		{name: "one by one", bulk: "off", maxLive: func(int) float64 { return 32 }},
+		{name: "in pages", bulk: "on", maxLive: func(n int) float64 { return 32 + float64(n)*100/(1<<20) }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fake := testsupport.NewFakeGrafana(t, testsupport.FakeOptions{
+				SyntheticDashboards: total,
+				Bulk:                tc.bulk == "on",
+			})
+			out := filepath.Join(t.TempDir(), "queries.txt")
 
-	stopSampling, peak := sampleHeap(t)
+			stopSampling, peak := sampleHeap(t)
 
-	start := time.Now()
-	stderr, err := runCLI(t,
-		"--url", fake.URL,
-		"-o", out,
-		"--page-size", "5000",
-		"--concurrency", "16",
-		"--progress", "never",
-	)
-	elapsed := time.Since(start)
-	stopSampling()
+			start := time.Now()
+			stderr, err := runCLI(t,
+				"--url", fake.URL,
+				"-o", out,
+				"--page-size", "5000",
+				"--concurrency", "16",
+				"--progress", "never",
+				"--bulk", tc.bulk,
+			)
+			elapsed := time.Since(start)
+			stopSampling()
 
-	if err != nil {
-		t.Fatalf("run failed: %v\n%s", err, stderr)
-	}
+			if err != nil {
+				t.Fatalf("run failed: %v\n%s", err, stderr)
+			}
 
-	// Measure before verifying the output, since verification itself keeps a set
-	// of every uid and would dominate the reading.
-	liveMiB := liveHeapMiB()
+			// Measure before verifying the output, since verification itself
+			// keeps a set of every uid and would dominate the reading.
+			liveMiB := liveHeapMiB()
 
-	lines, uniqueUIDs := countGzipLines(t, out+".gz")
-	wantLines := total * 2
-	if lines != wantLines {
-		t.Errorf("wrote %d lines, want %d", lines, wantLines)
-	}
-	if uniqueUIDs != total {
-		t.Errorf("wrote %d distinct dashboards, want %d", uniqueUIDs, total)
-	}
+			lines, uniqueUIDs := countGzipLines(t, out+".gz")
+			wantLines := total * 2
+			if lines != wantLines {
+				t.Errorf("wrote %d lines, want %d", lines, wantLines)
+			}
+			if uniqueUIDs != total {
+				t.Errorf("wrote %d distinct dashboards, want %d", uniqueUIDs, total)
+			}
 
-	peakMiB := float64(peak.Load()) / (1 << 20)
-	t.Logf("%d dashboards in %s (%.0f/s), %d lines, peak heap %.1f MiB, live heap after GC %.1f MiB",
-		total, elapsed.Round(time.Millisecond), float64(total)/elapsed.Seconds(), lines, peakMiB, liveMiB)
+			peakMiB := float64(peak.Load()) / (1 << 20)
+			t.Logf("%d dashboards in %s (%.0f/s), %d lines, peak heap %.1f MiB, live heap after GC %.1f MiB",
+				total, elapsed.Round(time.Millisecond), float64(total)/elapsed.Seconds(), lines, peakMiB, liveMiB)
 
-	// Only a bounded number of dashboards is ever in flight, so neither the live
-	// heap nor the peak may grow with the dashboard count. The peak is the looser
-	// bound because it includes uncollected garbage and the fake Grafana shares
-	// this process.
-	const (
-		maxLiveMiB = 32
-		maxPeakMiB = 128
-	)
-	if liveMiB > maxLiveMiB {
-		t.Errorf("live heap %.1f MiB exceeds %d MiB: nothing should be retained per dashboard",
-			liveMiB, maxLiveMiB)
-	}
-	if peakMiB > maxPeakMiB {
-		t.Errorf("peak heap %.1f MiB exceeds %d MiB: memory should not scale with the dashboard count",
-			peakMiB, maxPeakMiB)
+			// The peak is the looser bound because it includes uncollected
+			// garbage and the fake Grafana shares this process.
+			maxLiveMiB := tc.maxLive(total)
+			maxPeakMiB := 128 + (maxLiveMiB - 32)
+			if liveMiB > maxLiveMiB {
+				t.Errorf("live heap %.1f MiB exceeds %.1f MiB: more is retained per dashboard than a uid",
+					liveMiB, maxLiveMiB)
+			}
+			if peakMiB > maxPeakMiB {
+				t.Errorf("peak heap %.1f MiB exceeds %.1f MiB: memory should not scale with the dashboard count",
+					peakMiB, maxPeakMiB)
+			}
+		})
 	}
 }
 

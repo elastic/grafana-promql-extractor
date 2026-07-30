@@ -86,7 +86,7 @@ Run `grafana-dashboard-extractor --help` for the full list. The ones that matter
 | `--dedupe` | `true` | Drop repeated identical queries within a dashboard |
 | `--anonymize` | `false` | Replace the identifiers of every query with pseudonyms |
 | `--start-page` | `1` | Resume an interrupted run at a later search page |
-| `--bulk` | `off` | Read dashboards in pages on Grafana 12 and later: faster, but see [the caveat](#reading-dashboards-in-pages) |
+| `--bulk` | `auto` | Read whole dashboards [a page at a time](#reading-dashboards-in-pages) where Grafana serves them: `auto`, `on`, `off` |
 | `--progress` | `auto` | `auto`, `always` or `never` |
 
 An interrupted run reports the page it stopped on. Resume it without losing what was
@@ -153,38 +153,50 @@ logs real dashboard UIDs for failures.
 
 Dashboards are enumerated page by page and fetched by a worker pool that feeds a single
 writer, so only `--concurrency` dashboard documents exist in memory at any moment.
-Extracting 400,000 dashboards uses the same memory as extracting 50: a live heap of about
-1.3 MiB, with a peak of roughly 6 MiB including garbage awaiting collection. Run
-`make test-scale SCALE=50000` to reproduce the measurement.
+Extracting 400,000 dashboards one by one uses the same memory as extracting 50: a live heap
+of about 1.3 MiB, with a peak of roughly 6 MiB including garbage awaiting collection.
+Reading them [in pages](#reading-dashboards-in-pages) adds one uid per dashboard, held until
+the run can check what the pages left out, which raises the peak by about 12 MiB for 50,000
+dashboards and 47 MiB for 400,000. Run `make test-scale SCALE=50000` to reproduce the measurement.
 
 Grafana, not the extractor, sets the pace: against a local Grafana, expect a throughput of
-around 600 dashboards per second at the default concurrency. A remote instance answers
-slower, and since each dashboard costs one request, the rate is roughly `--concurrency`
-divided by the round trip time. Raising concurrency helps as long as the instance keeps up;
-the progress line reports the rate a run actually achieves.
+around 600 dashboards per second at the default concurrency, and around 800 where whole
+dashboards can be read a page at a time. A remote instance answers slower, and the progress
+line reports the rate a run actually achieves.
 
 ### Reading dashboards in pages
 
-Grafana 12 added an API that returns whole dashboards a page at a time, which `--bulk on`
-uses: 50,000 dashboards become around a thousand requests instead of 50,000. It is off by
-default, and the reason is worth knowing before turning it on. Grafana assembles a page by
-reading a batch of dashboards and then checking which of them the caller may see; when that
-check fails, on a busy instance for example, the whole batch is left out of the page while
-the position moves past it. The reply is still a 200, so a listing can come back missing
-hundreds of dashboards with nothing in it looking wrong. On a container holding a thousand
-dashboards, roughly one run in twenty-five came back short this way.
+Grafana 12 added an API that returns whole dashboards a page at a time. Where it is
+available, 50,000 dashboards cost around a thousand requests instead of 50,000, which is
+both faster and considerably gentler on the instance, so `--bulk auto` uses it by default.
 
-A run that reads dashboards in pages therefore counts them first and refuses to call itself
-complete, so the failure costs a re-run rather than a corpus with holes:
+There is a catch worth knowing about. Grafana assembles a page by reading a batch of
+dashboards and then asking its authorization service, in one call for the whole batch, which
+of them the caller may see. If that call fails rather than answers, every dashboard in the
+batch looks invisible and is left out of the page, and the reply is still a 200. A listing
+can come back missing hundreds of dashboards, or all of them, with nothing in it looking
+wrong.
+
+So a run does not take a listing at its word. Once the pages are exhausted, it asks
+`/api/search` what the instance holds and fetches anything the pages never delivered:
 
 ```
-Grafana listed 571 dashboards of the 999 it holds and gave no reason;
-re-run with --bulk off to fetch them one by one
+  left out of the pages: 999, fetched one by one instead
 ```
 
-Pages also cannot be filtered or resumed by page number, so `--folder-uid`, `--tag` and
-`--start-page` keep to one request per dashboard. An interrupted run prints a
-`--continue-token` to resume from instead.
+The worst case is therefore a slow run rather than a file with holes: walking pages that
+return nothing takes its own time, and the dashboards are then fetched one by one on top of
+that. Output is identical either way.
+
+In practice this only showed up on SQLite, which is the default for a container and for a
+development instance, but not for anything holding 50,000 dashboards. Under a write load
+heavy enough to make SQLite lose every listing, the same Grafana on Postgres served fifteen
+runs without dropping a single dashboard, and `/api/search` never lost one on either.
+
+Two limits remain. `--max-dashboards` stops a run before it knows what it should have seen,
+and `--continue-token` resumes a listing whose earlier pages this run never saw, so neither
+can be checked; both say so when they run. `--folder-uid`, `--tag` and `--start-page` cannot
+be expressed as a listing at all and keep to one request per dashboard.
 
 ```mermaid
 flowchart LR

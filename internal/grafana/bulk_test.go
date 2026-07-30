@@ -225,20 +225,25 @@ func TestBulkAvailability(t *testing.T) {
 		}
 	})
 
-	// An older Grafana does not know the endpoint, and a namespace that does
-	// not exist yields an empty list rather than an error; in both cases the
-	// search API is the one that works.
+	// An older Grafana does not know the endpoint at all, which is the one
+	// answer that settles the question.
 	t.Run("older release", func(t *testing.T) {
 		available := probeStatus(t, http.StatusNotFound)
 		if available {
 			t.Error("a 404 must not be taken for a working bulk API")
 		}
 	})
+
+	// An instance can answer the probe with nothing because it is empty,
+	// because the dashboards are in another namespace, or because the page
+	// came back empty for the reason pages do. The endpoint is there in every
+	// case, and a listing that yields nothing costs a run the fallback it
+	// would otherwise have started with.
 	t.Run("empty answer", func(t *testing.T) {
 		server := &bulkServer{total: 0, pageSize: 10}
 		available, err := server.start(t).BulkAvailable(context.Background())
-		if err != nil || available {
-			t.Errorf("BulkAvailable() = %v, %v, want false", available, err)
+		if err != nil || !available {
+			t.Errorf("BulkAvailable() = %v, %v, want true", available, err)
 		}
 	})
 	t.Run("restricted", func(t *testing.T) {

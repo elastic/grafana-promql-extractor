@@ -125,11 +125,10 @@ func TestBulkOnRequiresAnInstanceThatServesIt(t *testing.T) {
 	}
 }
 
-// TestBulkIsOffByDefault covers the choice the tool makes when nothing is
-// asked of it: pages are faster, but they have been seen to come back short
-// without saying so, and a corpus that quietly misses dashboards is worse than
-// one that took longer to collect.
-func TestBulkIsOffByDefault(t *testing.T) {
+// TestPagesAreTakenWhenOffered covers the choice the tool makes when nothing is
+// asked of it: an instance that serves whole dashboards a page at a time is
+// read that way, since the result is checked afterwards either way.
+func TestPagesAreTakenWhenOffered(t *testing.T) {
 	dashboards := testsupport.GeneratedFixtures(5)
 	fake := testsupport.NewFakeGrafana(t, testsupport.FakeOptions{Dashboards: dashboards, Bulk: true})
 	out := filepath.Join(t.TempDir(), "queries.txt")
@@ -140,8 +139,11 @@ func TestBulkIsOffByDefault(t *testing.T) {
 	}
 
 	assertSameLines(t, readLines(t, out), testsupport.ExpectedLines(dashboards))
-	if got := fake.Requests(testsupport.BulkRoute); got != 0 {
-		t.Errorf("made %d bulk requests without being asked to", got)
+	if got := fake.Requests(testsupport.BulkRoute); got == 0 {
+		t.Error("fetched dashboards one by one although the instance offered them in pages")
+	}
+	if got := fake.Requests(testsupport.DashboardRoute); got != 0 {
+		t.Errorf("fetched %d dashboards by uid although the pages carried them all", got)
 	}
 }
 
@@ -187,11 +189,12 @@ func TestFetchesDashboardsAListingOnlyNames(t *testing.T) {
 	}
 }
 
-// TestReportsDashboardsGrafanaNeverDelivered covers the failure that looks like
-// success: an instance that ends a listing early leaves the run believing it is
-// done. Counting the dashboards beforehand is what notices, and the summary has
-// to say so rather than quietly writing a third of the queries.
-func TestReportsDashboardsGrafanaNeverDelivered(t *testing.T) {
+// TestFetchesWhatThePagesLeftOut covers the failure that looks like success: an
+// instance that ends a listing early leaves the run believing it is done. What
+// the pages delivered is compared against what /api/search says the instance
+// holds, and the difference is fetched one by one, so the run ends up complete
+// rather than merely finished.
+func TestFetchesWhatThePagesLeftOut(t *testing.T) {
 	dashboards := testsupport.GeneratedFixtures(20)
 	fake := testsupport.NewFakeGrafana(t, testsupport.FakeOptions{
 		Dashboards:    dashboards,
@@ -203,20 +206,45 @@ func TestReportsDashboardsGrafanaNeverDelivered(t *testing.T) {
 
 	stderr, err := runCLI(t, "--url", fake.URL, "-o", out, "--compress=false",
 		"--progress", "never", "--bulk", "on")
-	if err == nil {
-		t.Fatalf("the run called itself complete with half the dashboards:\n%s", stderr)
-	}
-	if !strings.Contains(err.Error(), "--bulk off") {
-		t.Errorf("the error does not say how to get the rest: %v", err)
+	if err != nil {
+		t.Fatalf("run failed: %v\n%s", err, stderr)
 	}
 
-	// The dashboards it did get are worth keeping; only the claim that they
-	// are all of them is wrong.
-	if got := len(distinctUIDs(readLines(t, out))); got != 10 {
-		t.Errorf("wrote %d dashboards, want the 10 the instance handed over", got)
+	assertSameLines(t, readLines(t, out), testsupport.ExpectedLines(dashboards))
+	if got := fake.Requests(testsupport.DashboardRoute); got != 10 {
+		t.Errorf("fetched %d dashboards by uid, want the 10 the pages never carried", got)
 	}
-	if !strings.Contains(stderr, "never delivered") {
-		t.Errorf("the summary does not mention the missing dashboards:\n%s", stderr)
+	if !strings.Contains(stderr, "left out of the pages") {
+		t.Errorf("the summary does not say the instance left dashboards out:\n%s", stderr)
+	}
+}
+
+// TestASampleIsTakenAtItsWord covers the one case the check cannot cover: a run
+// that stops at --max-dashboards has no idea how many it should have seen, so
+// it says as much rather than treating the rest of the instance as missing.
+func TestASampleIsTakenAtItsWord(t *testing.T) {
+	dashboards := testsupport.GeneratedFixtures(20)
+	fake := testsupport.NewFakeGrafana(t, testsupport.FakeOptions{
+		Dashboards:   dashboards,
+		Bulk:         true,
+		BulkPageSize: 5,
+	})
+	out := filepath.Join(t.TempDir(), "queries.txt")
+
+	stderr, err := runCLI(t, "--url", fake.URL, "-o", out, "--compress=false",
+		"--progress", "never", "--bulk", "on", "--max-dashboards", "5")
+	if err != nil {
+		t.Fatalf("run failed: %v\n%s", err, stderr)
+	}
+
+	if got := len(distinctUIDs(readLines(t, out))); got != 5 {
+		t.Errorf("wrote %d dashboards, want the 5 that were asked for", got)
+	}
+	if got := fake.Requests(testsupport.SearchRoute); got != 0 {
+		t.Errorf("made %d search requests to check a run that stopped early", got)
+	}
+	if !strings.Contains(stderr, "--max-dashboards") {
+		t.Errorf("the run does not say the sample went unchecked:\n%s", stderr)
 	}
 }
 

@@ -41,16 +41,21 @@ ones, which is the only place that parity is checked against a real instance.
 
 ## The bulk listing
 
-`--bulk on` reads dashboards in pages from the Kubernetes-style API of Grafana 12. Two
-things about it are easy to break and hard to notice:
+`--bulk` reads dashboards in pages from the Kubernetes-style API of Grafana 12, and is on by
+default where the instance serves it. Two things about it are easy to break and hard to
+notice:
 
 - It asks for `v0alpha1` on purpose. That version returns the document as stored; the later
   ones migrate it and drop `__inputs`, after which exported dashboards lose their datasource
   types and their Loki queries come out looking like PromQL.
-- Grafana leaves a batch of dashboards out of a page when the permission check for it fails,
-  and still answers 200. A run using pages counts the dashboards first and fails if fewer
-  arrive, so do not weaken that check; it is the only thing between a busy instance and a
-  corpus with holes.
+- Grafana drops a whole batch of dashboards from a page when the authorization call for that
+  batch fails rather than answers, and still replies 200. On SQLite under write load this is
+  reliable enough to reproduce: `pkg/storage/unified/resource/server.go` filters the batch,
+  and the container log shows `could not get basic roles: database is locked (SQLITE_BUSY)`
+  against a `check_count` equal to the page size. `fetchMissing` in `internal/cli/pipeline.go`
+  is what keeps that from reaching the output: it enumerates `/api/search`, which does not
+  have the defect, and fetches whatever the pages skipped. Do not remove it, and do not
+  assume a listing that returned a token and a 200 returned the dashboards.
 
 ## Fixtures
 

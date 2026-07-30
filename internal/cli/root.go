@@ -101,9 +101,8 @@ the dashboard's own datasource variables.`),
   # Pseudonymized, so the queries can be shared outside the organization
   grafana-dashboard-extractor --anonymize -o shareable.txt
 
-  # Fewer requests on Grafana 12 and later, at the cost of a run that fails
-  # rather than finish short when the instance leaves dashboards out
-  grafana-dashboard-extractor --bulk on`, "\n"),
+  # One request per dashboard, for an instance that answers a listing oddly
+  grafana-dashboard-extractor --bulk off`, "\n"),
 		Version:           version,
 		Args:              cobra.NoArgs,
 		SilenceUsage:      true,
@@ -135,8 +134,8 @@ the dashboard's own datasource variables.`),
 	f.IntVar(&opts.startPage, "start-page", 1, "first search page to fetch, to resume an interrupted run; combine with --append")
 	f.StringSliceVar(&opts.folderUIDs, "folder-uid", nil, "only export dashboards in these folders, repeatable")
 	f.StringSliceVar(&opts.tags, "tag", nil, "only export dashboards carrying these tags, repeatable")
-	f.StringVar(&opts.bulk, "bulk", bulkOff,
-		"read dashboards in pages instead of one request each, which is faster but has been seen to skip some: auto, on or off")
+	f.StringVar(&opts.bulk, "bulk", bulkAuto,
+		"read dashboards in pages of whole documents where Grafana serves them, instead of one request each: auto, on or off")
 	f.StringVar(&opts.continueToken, "continue-token", "",
 		"resume an interrupted bulk run at the page this token points at; combine with --append")
 

@@ -73,21 +73,9 @@ func TestCorpusThroughput(t *testing.T) {
 
 	results := make([]measurement, 0, len(runs))
 	for _, run := range runs {
-		// A run reading dashboards in pages fails when Grafana leaves a batch
-		// out of one, which it does now and then under the load of this test.
-		// The tool is right to refuse that result; measuring it is pointless,
-		// so the run is repeated and, failing twice, left out.
-		var result measurement
-		var err error
-		for attempt := range 3 {
-			if result, err = instance.measure(t, run.label, run.concurrency, run.args...); err == nil {
-				break
-			}
-			t.Logf("attempt %d of %q did not finish: %v", attempt+1, run.label, err)
-		}
+		result, err := instance.measure(t, run.label, run.concurrency, run.args...)
 		if err != nil {
-			t.Logf("leaving %q out of the comparison", run.label)
-			continue
+			t.Fatalf("%s did not finish: %v", run.label, err)
 		}
 		results = append(results, result)
 	}
@@ -95,9 +83,13 @@ func TestCorpusThroughput(t *testing.T) {
 	t.Logf("extracting %d grafana.com dashboards from Grafana %s:", searchable, image())
 	for _, r := range results {
 		projected := r.elapsed / time.Duration(max(r.dashboards, 1)) * projectedSize
-		t.Logf("  %-20s %8s  %5.0f dashboards/s  %6d queries  ~%s for %d dashboards",
+		note := ""
+		if r.repaired > 0 {
+			note = fmt.Sprintf("  (%d fetched one by one after Grafana skipped them)", r.repaired)
+		}
+		t.Logf("  %-20s %8s  %5.0f dashboards/s  %6d queries  ~%s for %d dashboards%s",
 			r.label, r.elapsed.Round(10*time.Millisecond), r.rate(), r.queries,
-			projected.Round(time.Second), projectedSize)
+			projected.Round(time.Second), projectedSize, note)
 	}
 
 	// The settings must not change the result, only how fast it arrives. This
@@ -132,6 +124,9 @@ type measurement struct {
 	elapsed    time.Duration
 	dashboards int
 	queries    int
+	// repaired is how many dashboards Grafana left out of its pages and the
+	// run fetched one by one instead.
+	repaired int
 	// plain marks a run whose queries can be compared with another run's,
 	// which pseudonymized ones cannot.
 	plain bool
@@ -167,12 +162,20 @@ func (i *Instance) measure(t *testing.T, label string, concurrency int, extra ..
 		return measurement{}, err
 	}
 
+	repaired := 0
+	if match := repairedPattern.FindStringSubmatch(stderr); match != nil {
+		repaired = summaryCount(t, repairedPattern, stderr)
+		t.Logf("%s: Grafana left %d dashboards out of its pages, so this run measures "+
+			"the fallback more than the fast path", label, repaired)
+	}
+
 	return measurement{
 		label:      label,
 		path:       out,
 		elapsed:    elapsed,
 		dashboards: summaryCount(t, processedPattern, stderr),
 		queries:    summaryCount(t, queriesPattern, stderr),
+		repaired:   repaired,
 		plain:      !slices.Contains(extra, "--anonymize"),
 	}, nil
 }
@@ -242,6 +245,10 @@ var (
 	// hold no PromQL and therefore produce no output.
 	processedPattern = regexp.MustCompile(`Processed ([\d,]+) dashboard`)
 	queriesPattern   = regexp.MustCompile(`queries written\D+([\d,]+)`)
+	// repairedPattern counts the dashboards Grafana left out of its pages,
+	// which the run then fetched one by one. A run that repaired most of the
+	// instance measures the speed of the slow path, not the fast one.
+	repairedPattern = regexp.MustCompile(`left out of the pages:\s+([\d,]+)`)
 )
 
 func summaryCount(t *testing.T, pattern *regexp.Regexp, stderr string) int {
