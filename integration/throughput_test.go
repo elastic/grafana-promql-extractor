@@ -18,7 +18,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/felixbarny/grafana-dashboard-extractor/corpus"
+	"github.com/felixbarny/grafana-promql-extractor/corpus"
 )
 
 const (

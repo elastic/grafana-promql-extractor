@@ -11,11 +11,11 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/felixbarny/grafana-dashboard-extractor/internal/anonymize"
-	"github.com/felixbarny/grafana-dashboard-extractor/internal/extract"
-	"github.com/felixbarny/grafana-dashboard-extractor/internal/grafana"
-	"github.com/felixbarny/grafana-dashboard-extractor/internal/output"
-	"github.com/felixbarny/grafana-dashboard-extractor/internal/progress"
+	"github.com/felixbarny/grafana-promql-extractor/internal/anonymize"
+	"github.com/felixbarny/grafana-promql-extractor/internal/extract"
+	"github.com/felixbarny/grafana-promql-extractor/internal/grafana"
+	"github.com/felixbarny/grafana-promql-extractor/internal/output"
+	"github.com/felixbarny/grafana-promql-extractor/internal/progress"
 )
 
 // ErrInterrupted is returned when the run was cancelled by a signal. Output

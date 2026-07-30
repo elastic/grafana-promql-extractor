@@ -34,8 +34,8 @@ const (
 	requestTimeout         = 30 * time.Second
 	maxAttempts            = 3
 
-	userAgent = "grafana-dashboard-extractor-corpus-test/1.0 " +
-		"(+https://github.com/felixbarny/grafana-dashboard-extractor)"
+	userAgent = "grafana-promql-extractor-corpus-test/1.0 " +
+		"(+https://github.com/felixbarny/grafana-promql-extractor)"
 )
 
 // Entry is one dashboard in the grafana.com catalog.

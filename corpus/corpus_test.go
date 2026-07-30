@@ -12,8 +12,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/felixbarny/grafana-dashboard-extractor/internal/cli"
-	"github.com/felixbarny/grafana-dashboard-extractor/internal/testsupport"
+	"github.com/felixbarny/grafana-promql-extractor/internal/cli"
+	"github.com/felixbarny/grafana-promql-extractor/internal/testsupport"
 )
 
 // Thresholds guard against regressions. They sit below what the top 1000

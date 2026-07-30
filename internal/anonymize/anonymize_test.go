@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/felixbarny/grafana-dashboard-extractor/internal/anonymize"
+	"github.com/felixbarny/grafana-promql-extractor/internal/anonymize"
 )
 
 // newAnonymizer returns an Anonymizer with a fixed salt, so that a test can

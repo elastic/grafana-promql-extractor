@@ -14,8 +14,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/felixbarny/grafana-dashboard-extractor/internal/cli"
-	"github.com/felixbarny/grafana-dashboard-extractor/internal/testsupport"
+	"github.com/felixbarny/grafana-promql-extractor/internal/cli"
+	"github.com/felixbarny/grafana-promql-extractor/internal/testsupport"
 )
 
 // runCLI drives the real command in process and returns everything it wrote to

@@ -1,4 +1,4 @@
-module github.com/felixbarny/grafana-dashboard-extractor
+module github.com/felixbarny/grafana-promql-extractor
 
 go 1.26.2
 

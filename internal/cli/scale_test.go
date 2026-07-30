@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/felixbarny/grafana-dashboard-extractor/internal/testsupport"
+	"github.com/felixbarny/grafana-promql-extractor/internal/testsupport"
 )
 
 // TestScale checks that memory stays flat while extracting far more dashboards

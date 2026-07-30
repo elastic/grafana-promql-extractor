@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/felixbarny/grafana-dashboard-extractor/internal/grafana"
+	"github.com/felixbarny/grafana-promql-extractor/internal/grafana"
 )
 
 // bulkServer serves a dashboard collection of the given size, paginated the way

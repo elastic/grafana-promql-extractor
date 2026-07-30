@@ -1,6 +1,6 @@
-BINARY := grafana-dashboard-extractor
+BINARY := grafana-promql-extractor
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
-LDFLAGS := -s -w -X github.com/felixbarny/grafana-dashboard-extractor/internal/cli.version=$(VERSION)
+LDFLAGS := -s -w -X github.com/felixbarny/grafana-promql-extractor/internal/cli.version=$(VERSION)
 
 # Number of dashboards the scale test extracts.
 SCALE ?= 50000

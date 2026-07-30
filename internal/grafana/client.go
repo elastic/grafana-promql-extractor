@@ -19,7 +19,7 @@ import (
 
 const (
 	// DefaultUserAgent identifies the tool to Grafana access logs.
-	DefaultUserAgent = "grafana-dashboard-extractor"
+	DefaultUserAgent = "grafana-promql-extractor"
 
 	maxRetryDelay      = 30 * time.Second
 	errorBodyMaxLength = 512

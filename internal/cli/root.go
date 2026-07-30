@@ -9,9 +9,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/felixbarny/grafana-dashboard-extractor/internal/extract"
-	"github.com/felixbarny/grafana-dashboard-extractor/internal/grafana"
-	"github.com/felixbarny/grafana-dashboard-extractor/internal/progress"
+	"github.com/felixbarny/grafana-promql-extractor/internal/extract"
+	"github.com/felixbarny/grafana-promql-extractor/internal/grafana"
+	"github.com/felixbarny/grafana-promql-extractor/internal/progress"
 )
 
 // version is overridden at build time via -ldflags.
@@ -72,7 +72,7 @@ func NewRootCmd() *cobra.Command {
 	opts := &options{}
 
 	cmd := &cobra.Command{
-		Use:   "grafana-dashboard-extractor",
+		Use:   "grafana-promql-extractor",
 		Short: "Extract PromQL queries from the dashboards of a Grafana instance",
 		Long: strings.TrimSpace(`
 Extract PromQL queries from the dashboards of a Grafana instance.
@@ -90,19 +90,19 @@ the dashboard's own datasource variables.`),
   # Everything, gzipped, into promql-queries.txt.gz
   export GRAFANA_URL=https://grafana.example.com
   export GRAFANA_TOKEN=glsa_xxx
-  grafana-dashboard-extractor
+  grafana-promql-extractor
 
   # A sample of 500 dashboards, uncompressed
-  grafana-dashboard-extractor --max-dashboards 500 --compress=false -o sample.txt
+  grafana-promql-extractor --max-dashboards 500 --compress=false -o sample.txt
 
   # 50k dashboards split into files of 10k dashboards each
-  grafana-dashboard-extractor --dashboards-per-file 10000
+  grafana-promql-extractor --dashboards-per-file 10000
 
   # Pseudonymized, so the queries can be shared outside the organization
-  grafana-dashboard-extractor --anonymize -o shareable.txt
+  grafana-promql-extractor --anonymize -o shareable.txt
 
   # One request per dashboard, for an instance that answers a listing oddly
-  grafana-dashboard-extractor --bulk off`, "\n"),
+  grafana-promql-extractor --bulk off`, "\n"),
 		Version:           version,
 		Args:              cobra.NoArgs,
 		SilenceUsage:      true,

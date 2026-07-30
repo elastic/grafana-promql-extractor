@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/felixbarny/grafana-dashboard-extractor/internal/extract"
-	"github.com/felixbarny/grafana-dashboard-extractor/internal/output"
-	"github.com/felixbarny/grafana-dashboard-extractor/internal/progress"
+	"github.com/felixbarny/grafana-promql-extractor/internal/extract"
+	"github.com/felixbarny/grafana-promql-extractor/internal/output"
+	"github.com/felixbarny/grafana-promql-extractor/internal/progress"
 )
 
 // expectation is what the run knew about the instance beyond what it processed.

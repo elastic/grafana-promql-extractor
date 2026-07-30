@@ -1,4 +1,4 @@
-# grafana-dashboard-extractor
+# grafana-promql-extractor
 
 Extract the PromQL queries from every dashboard of a Grafana instance into a flat file.
 
@@ -16,11 +16,11 @@ queries are both extracted, since Grafana runs both against the datasource.
 
 ## Install
 
-Download a binary for your platform from the [releases page](https://github.com/felixbarny/grafana-dashboard-extractor/releases),
+Download a binary for your platform from the [releases page](https://github.com/felixbarny/grafana-promql-extractor/releases),
 or build from source:
 
 ```bash
-go install github.com/felixbarny/grafana-dashboard-extractor@latest
+go install github.com/felixbarny/grafana-promql-extractor@latest
 ```
 
 The binary is statically linked with no runtime dependencies.
@@ -31,7 +31,7 @@ The binary is statically linked with no runtime dependencies.
 export GRAFANA_URL=https://grafana.example.com
 export GRAFANA_TOKEN=glsa_xxxxxxxx
 
-grafana-dashboard-extractor
+grafana-promql-extractor
 ```
 
 That writes `promql-queries.txt.gz` and reports progress on stderr:
@@ -44,13 +44,13 @@ More examples:
 
 ```bash
 # A sample of 500 dashboards, uncompressed
-grafana-dashboard-extractor --max-dashboards 500 --compress=false -o sample.txt
+grafana-promql-extractor --max-dashboards 500 --compress=false -o sample.txt
 
 # Split a large instance into files of 10k dashboards each
-grafana-dashboard-extractor --dashboards-per-file 10000
+grafana-promql-extractor --dashboards-per-file 10000
 
 # Basic auth instead of a service account token, restricted to one folder
-grafana-dashboard-extractor --user admin --password secret --folder-uid abc123
+grafana-promql-extractor --user admin --password secret --folder-uid abc123
 ```
 
 ### Credentials
@@ -70,7 +70,7 @@ Prefer the environment variables so credentials do not end up in your shell hist
 
 ### Options
 
-Run `grafana-dashboard-extractor --help` for the full list. The ones that matter most:
+Run `grafana-promql-extractor --help` for the full list. The ones that matter most:
 
 | Flag | Default | Purpose |
 | --- | --- | --- |
@@ -93,7 +93,7 @@ An interrupted run reports the page it stopped on. Resume it without losing what
 already written by combining `--start-page` with `--append`:
 
 ```bash
-grafana-dashboard-extractor --start-page 7 --append
+grafana-promql-extractor --start-page 7 --append
 ```
 
 With `--dashboards-per-file`, the resumed run continues the numbering rather than reopening
@@ -120,7 +120,7 @@ Queries name what an organization runs. `--anonymize` replaces every identifier 
 pseudonym, so the output can be handed to someone outside it:
 
 ```bash
-grafana-dashboard-extractor --anonymize -o shareable.txt
+grafana-promql-extractor --anonymize -o shareable.txt
 ```
 
 ```
@@ -141,7 +141,7 @@ means two runs produce unrelated pseudonyms. To compare runs, or to resume one w
 
 ```bash
 export GRAFANA_ANONYMIZE_SALT=$(openssl rand -hex 32)
-grafana-dashboard-extractor --anonymize
+grafana-promql-extractor --anonymize
 ```
 
 Two caveats worth knowing before sharing. Anything the tool cannot recognize as PromQL is
@@ -249,7 +249,7 @@ as well.
 ## Development
 
 ```bash
-make build             # build ./bin/grafana-dashboard-extractor
+make build             # build ./bin/grafana-promql-extractor
 make test-race         # unit tests
 make test-integration  # integration tests against a dockerized Grafana
 make test-versions     # real dashboards through Grafana 11, 12 and 13

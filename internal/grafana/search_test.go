@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/felixbarny/grafana-dashboard-extractor/internal/grafana"
-	"github.com/felixbarny/grafana-dashboard-extractor/internal/testsupport"
+	"github.com/felixbarny/grafana-promql-extractor/internal/grafana"
+	"github.com/felixbarny/grafana-promql-extractor/internal/testsupport"
 )
 
 func collectUIDs(t *testing.T, client *grafana.Client, opt grafana.SearchOptions) []string {

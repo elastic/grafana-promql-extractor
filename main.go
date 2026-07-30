@@ -1,4 +1,4 @@
-// Command grafana-dashboard-extractor extracts PromQL queries from the
+// Command grafana-promql-extractor extracts PromQL queries from the
 // dashboards of a Grafana instance.
 package main
 
@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/felixbarny/grafana-dashboard-extractor/internal/cli"
+	"github.com/felixbarny/grafana-promql-extractor/internal/cli"
 )
 
 func main() {

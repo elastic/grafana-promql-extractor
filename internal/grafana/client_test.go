@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/felixbarny/grafana-dashboard-extractor/internal/grafana"
+	"github.com/felixbarny/grafana-promql-extractor/internal/grafana"
 )
 
 func TestNewNormalizesURL(t *testing.T) {
