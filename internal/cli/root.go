@@ -31,11 +31,13 @@ type options struct {
 	maxDashboards     int
 	dashboardsPerFile int
 
-	concurrency int
-	pageSize    int
-	startPage   int
-	folderUIDs  []string
-	tags        []string
+	concurrency   int
+	pageSize      int
+	startPage     int
+	folderUIDs    []string
+	tags          []string
+	bulk          string
+	continueToken string
 
 	datasourceTypes   []string
 	includeUnresolved bool
@@ -97,7 +99,11 @@ the dashboard's own datasource variables.`),
   grafana-dashboard-extractor --dashboards-per-file 10000
 
   # Pseudonymized, so the queries can be shared outside the organization
-  grafana-dashboard-extractor --anonymize -o shareable.txt`, "\n"),
+  grafana-dashboard-extractor --anonymize -o shareable.txt
+
+  # Fewer requests on Grafana 12 and later, at the cost of a run that fails
+  # rather than finish short when the instance leaves dashboards out
+  grafana-dashboard-extractor --bulk on`, "\n"),
 		Version:           version,
 		Args:              cobra.NoArgs,
 		SilenceUsage:      true,
@@ -129,6 +135,10 @@ the dashboard's own datasource variables.`),
 	f.IntVar(&opts.startPage, "start-page", 1, "first search page to fetch, to resume an interrupted run; combine with --append")
 	f.StringSliceVar(&opts.folderUIDs, "folder-uid", nil, "only export dashboards in these folders, repeatable")
 	f.StringSliceVar(&opts.tags, "tag", nil, "only export dashboards carrying these tags, repeatable")
+	f.StringVar(&opts.bulk, "bulk", bulkOff,
+		"read dashboards in pages instead of one request each, which is faster but has been seen to skip some: auto, on or off")
+	f.StringVar(&opts.continueToken, "continue-token", "",
+		"resume an interrupted bulk run at the page this token points at; combine with --append")
 
 	f.StringSliceVar(&opts.datasourceTypes, "datasource-types", extract.DefaultDatasourceTypes, "datasource plugin types to treat as PromQL sources")
 	f.BoolVar(&opts.includeUnresolved, "include-unresolved", true, "keep queries whose datasource type cannot be determined")

@@ -86,6 +86,7 @@ Run `grafana-dashboard-extractor --help` for the full list. The ones that matter
 | `--dedupe` | `true` | Drop repeated identical queries within a dashboard |
 | `--anonymize` | `false` | Replace the identifiers of every query with pseudonyms |
 | `--start-page` | `1` | Resume an interrupted run at a later search page |
+| `--bulk` | `off` | Read dashboards in pages on Grafana 12 and later: faster, but see [the caveat](#reading-dashboards-in-pages) |
 | `--progress` | `auto` | `auto`, `always` or `never` |
 
 An interrupted run reports the page it stopped on. Resume it without losing what was
@@ -158,8 +159,32 @@ Extracting 400,000 dashboards uses the same memory as extracting 50: a live heap
 
 Grafana, not the extractor, sets the pace: against a local Grafana, expect a throughput of
 around 600 dashboards per second at the default concurrency. A remote instance answers
-slower, and raising `--concurrency` past the default mostly adds load rather than
-throughput. The progress line reports the rate a run actually achieves.
+slower, and since each dashboard costs one request, the rate is roughly `--concurrency`
+divided by the round trip time. Raising concurrency helps as long as the instance keeps up;
+the progress line reports the rate a run actually achieves.
+
+### Reading dashboards in pages
+
+Grafana 12 added an API that returns whole dashboards a page at a time, which `--bulk on`
+uses: 50,000 dashboards become around a thousand requests instead of 50,000. It is off by
+default, and the reason is worth knowing before turning it on. Grafana assembles a page by
+reading a batch of dashboards and then checking which of them the caller may see; when that
+check fails, on a busy instance for example, the whole batch is left out of the page while
+the position moves past it. The reply is still a 200, so a listing can come back missing
+hundreds of dashboards with nothing in it looking wrong. On a container holding a thousand
+dashboards, roughly one run in twenty-five came back short this way.
+
+A run that reads dashboards in pages therefore counts them first and refuses to call itself
+complete, so the failure costs a re-run rather than a corpus with holes:
+
+```
+Grafana listed 571 dashboards of the 999 it holds and gave no reason;
+re-run with --bulk off to fetch them one by one
+```
+
+Pages also cannot be filtered or resumed by page number, so `--folder-uid`, `--tag` and
+`--start-page` keep to one request per dashboard. An interrupted run prints a
+`--continue-token` to resume from instead.
 
 ```mermaid
 flowchart LR

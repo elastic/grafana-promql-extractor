@@ -13,7 +13,10 @@ import (
 
 // summary reports what the run produced. Every count but the first is left out
 // when it is zero, so the block stays as short as the run was uneventful.
-func summary(out io.Writer, tracker *progress.Tracker, stats extract.Stats, files []output.FileInfo) {
+//
+// counted is what the run expected to process, from --precount, and zero when
+// nothing counted beforehand.
+func summary(out io.Writer, tracker *progress.Tracker, stats extract.Stats, files []output.FileInfo, counted int) {
 	dashboards, queries, failures := tracker.Counts()
 	fmt.Fprintf(out, "\nProcessed %s in %s\n",
 		count(dashboards, "dashboard", "dashboards"), tracker.Elapsed().Round(time.Millisecond))
@@ -48,6 +51,16 @@ func summary(out io.Writer, tracker *progress.Tracker, stats extract.Stats, file
 	counts.addIf(failures > 0, "failed dashboards", "%s (re-run with --verbose to see why)", humanInt(failures))
 	counts.write(out)
 
+	// Enumeration walks an instance that may change underneath it, and an
+	// answer that comes up short is indistinguishable from the end of the
+	// dashboards, so the count taken beforehand is the only thing that can
+	// notice.
+	if missing := counted - dashboards - failures; counted > 0 && missing > 0 {
+		fmt.Fprintf(out, "  %s of the %s counted before the run were never delivered by Grafana. "+
+			"Dashboards deleted while the run was going explain some; otherwise re-run to pick up the rest.\n",
+			count(missing, "dashboard", "dashboards"), count(counted, "dashboard", "dashboards"))
+	}
+
 	if len(files) == 0 {
 		fmt.Fprintf(out, "  no output files written\n")
 		return
@@ -60,18 +73,35 @@ func summary(out io.Writer, tracker *progress.Tracker, stats extract.Stats, file
 }
 
 // resumeHint tells the user where to pick a run up again, whether it was
-// interrupted or stopped by an error.
-func resumeHint(out io.Writer, page int, interrupted bool, opts *options) {
+// interrupted or stopped by an error. A bulk run has no page numbers to resume
+// from, only the opaque token that fetched the page it stopped on.
+func resumeHint(out io.Writer, position resumePosition, interrupted bool, opts *options) {
 	what := "Interrupted"
 	if !interrupted {
 		what = "Stopped by an error"
 	}
-	fmt.Fprintf(out, "\n%s on search page %d. Resume with --start-page %d --append; "+
-		"the dashboards of that page may repeat.\n", what, page, page)
+	switch {
+	case !position.bulk:
+		fmt.Fprintf(out, "\n%s on search page %d. Resume with --start-page %d --append; "+
+			"the dashboards of that page may repeat.\n", what, position.page, position.page)
+	case position.token == "":
+		fmt.Fprintf(out, "\n%s on the first page of dashboards. Start over; nothing worth resuming was written.\n", what)
+	default:
+		fmt.Fprintf(out, "\n%s while listing dashboards. Resume with --continue-token %s --append; "+
+			"the dashboards of that page may repeat.\n", what, position.token)
+	}
 	if opts.anonymize && opts.anonymizeSalt == "" {
 		fmt.Fprintf(out, "A resumed run would pseudonymize differently, since this one used a random salt. "+
 			"Start over with --anonymize-salt to get one consistent file.\n")
 	}
+}
+
+// resumePosition is where enumeration stood when a run ended early: a page
+// number for the search API, an opaque token for a bulk listing.
+type resumePosition struct {
+	bulk  bool
+	page  int
+	token string
 }
 
 // rows is a list of label and value pairs, printed with the labels padded to a

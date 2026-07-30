@@ -36,6 +36,23 @@ type FakeOptions struct {
 	// SyntheticDashboards serves this many dashboards without holding any of
 	// them in memory, so that scale tests measure only the extractor.
 	SyntheticDashboards int
+	// Bulk serves the Kubernetes-style dashboard collection of Grafana 12.
+	// Tests opt in, so that a fake stands for an older release by default.
+	Bulk bool
+	// BulkPageSize caps how many dashboards one bulk page holds, the way
+	// Grafana caps it well below what the client asks for.
+	BulkPageSize int
+	// BulkNamespace is the namespace the collection is served under.
+	// Defaults to the "default" namespace of organization 1.
+	BulkNamespace string
+	// BulkStopAfter, when positive, ends the listing after that many
+	// dashboards, as an instance that quietly loses track of a listing does.
+	// The client asks once more before believing it, so the listing is cut
+	// short for good.
+	BulkStopAfter int
+	// BulkWithoutDocuments lists every dashboard by name only, as an instance
+	// that cannot render the documents does.
+	BulkWithoutDocuments bool
 }
 
 // SyntheticUID is the uid of the nth synthetic dashboard, one-based.
@@ -98,6 +115,7 @@ func NewFakeGrafana(t *testing.T, opts FakeOptions) *FakeGrafana {
 	mux.HandleFunc("/api/frontend/settings", fake.handleFrontendSettings)
 	mux.HandleFunc("/api/search", fake.handleSearch)
 	mux.HandleFunc("/api/dashboards/uid/", fake.handleDashboard)
+	mux.HandleFunc(BulkRoute, fake.handleBulk)
 
 	fake.Server = httptest.NewServer(fake.instrument(mux))
 	fake.URL = fake.Server.URL
@@ -119,15 +137,19 @@ func (f *FakeGrafana) LastSearchQuery(param string) string {
 	return f.lastSearch[param]
 }
 
-// dashboardRoute is the key request counts are recorded under for dashboard
+// DashboardRoute is the key request counts are recorded under for dashboard
 // fetches, so that counting stays bounded when serving many dashboards.
-const dashboardRoute = "/api/dashboards/uid/"
+const DashboardRoute = "/api/dashboards/uid/"
 
 func routeKey(path string) string {
-	if strings.HasPrefix(path, dashboardRoute) {
-		return dashboardRoute
+	switch {
+	case strings.HasPrefix(path, DashboardRoute):
+		return DashboardRoute
+	case strings.HasPrefix(path, BulkRoute):
+		return BulkRoute
+	default:
+		return path
 	}
-	return path
 }
 
 func (f *FakeGrafana) instrument(next http.Handler) http.Handler {
@@ -253,6 +275,119 @@ func (f *FakeGrafana) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	fmt.Fprintf(w, `{"meta":{"folderTitle":"General","url":"/d/%s"},"dashboard":%s}`, uid, fixture.JSON)
+}
+
+// BulkRoute is the prefix the Kubernetes-style dashboard collection lives
+// under. Tests use it to count requests and to reject the endpoint.
+const BulkRoute = "/apis/dashboard.grafana.app/v0alpha1/namespaces/"
+
+// handleBulk serves the dashboard collection, paginated by an opaque token, as
+// Grafana 12 and later do. A namespace it does not serve yields an empty list
+// rather than an error, which is what makes an empty answer ambiguous for the
+// client and worth reproducing here.
+func (f *FakeGrafana) handleBulk(w http.ResponseWriter, r *http.Request) {
+	if !f.opts.Bulk {
+		http.Error(w, "404 page not found", http.StatusNotFound)
+		return
+	}
+	namespace, ok := strings.CutSuffix(strings.TrimPrefix(r.URL.Path, BulkRoute), "/dashboards")
+	if !ok {
+		http.Error(w, "404 page not found", http.StatusNotFound)
+		return
+	}
+
+	total := f.opts.SyntheticDashboards
+	if total == 0 {
+		total = len(f.opts.Dashboards)
+	}
+	if namespace != f.bulkNamespace() {
+		total = 0
+	}
+
+	start := 0
+	if token := r.URL.Query().Get("continue"); token != "" {
+		parsed, err := strconv.Atoi(token)
+		if err != nil || parsed < 0 {
+			http.Error(w, `{"message":"invalid continue token"}`, http.StatusBadRequest)
+			return
+		}
+		start = parsed
+	}
+	limit, err := strconv.Atoi(r.URL.Query().Get("limit"))
+	if err != nil || limit <= 0 {
+		limit = 500
+	}
+	if cap := f.opts.BulkPageSize; cap > 0 && limit > cap {
+		limit = cap
+	}
+
+	if stop := f.opts.BulkStopAfter; stop > 0 && start >= stop {
+		writeJSON(w, map[string]any{
+			"kind":     "DashboardList",
+			"metadata": map[string]any{"resourceVersion": "1"},
+			"items":    []any{},
+		})
+		return
+	}
+
+	end := min(start+limit, total)
+	items := make([]any, 0, max(end-start, 0))
+	for i := start; i < end; i++ {
+		uid, document := f.bulkItem(i)
+		item := map[string]any{
+			"kind":     "Dashboard",
+			"metadata": map[string]any{"name": uid},
+			"spec":     json.RawMessage(document),
+		}
+		if f.opts.BulkWithoutDocuments {
+			delete(item, "spec")
+		}
+		items = append(items, item)
+	}
+
+	metadata := map[string]any{"resourceVersion": "1"}
+	if end < total {
+		metadata["continue"] = strconv.Itoa(end)
+	}
+	writeJSON(w, map[string]any{
+		"kind":     "DashboardList",
+		"metadata": metadata,
+		"items":    items,
+	})
+}
+
+func (f *FakeGrafana) bulkNamespace() string {
+	if f.opts.BulkNamespace != "" {
+		return f.opts.BulkNamespace
+	}
+	return "default"
+}
+
+// bulkItem returns the nth dashboard as the collection serves it: the uid lives
+// in the metadata, and the document itself carries none, so a client that does
+// not read the metadata ends up with no uid at all.
+func (f *FakeGrafana) bulkItem(index int) (string, []byte) {
+	if f.opts.SyntheticDashboards > 0 {
+		uid := SyntheticUID(index + 1)
+		return uid, []byte(withoutUID(syntheticDashboardJSON(index + 1)))
+	}
+	fixture := f.opts.Dashboards[index]
+	return fixture.UID, []byte(withoutUID(string(fixture.JSON)))
+}
+
+// withoutUID drops the uid from a dashboard document, the way the collection
+// does, since there the uid is the resource name.
+func withoutUID(document string) string {
+	var decoded map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(document), &decoded); err != nil {
+		return document
+	}
+	delete(decoded, "uid")
+	encoded, err := json.Marshal(decoded)
+	if err != nil {
+		return document
+	}
+	return string(encoded)
 }
 
 // syntheticIndex parses a synthetic dashboard uid back into its index.

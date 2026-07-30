@@ -36,7 +36,21 @@ cache directory for inspection.
 
 **Throughput tests** need both tags and both prerequisites: they upload the cached corpus
 into a dockerized Grafana and time the extraction, so `make test-corpus` has to have filled
-the cache first.
+the cache first. They also compare the two ways of reading dashboards over a thousand real
+ones, which is the only place that parity is checked against a real instance.
+
+## The bulk listing
+
+`--bulk on` reads dashboards in pages from the Kubernetes-style API of Grafana 12. Two
+things about it are easy to break and hard to notice:
+
+- It asks for `v0alpha1` on purpose. That version returns the document as stored; the later
+  ones migrate it and drop `__inputs`, after which exported dashboards lose their datasource
+  types and their Loki queries come out looking like PromQL.
+- Grafana leaves a batch of dashboards out of a page when the permission check for it fails,
+  and still answers 200. A run using pages counts the dashboards first and fails if fewer
+  arrive, so do not weaken that check; it is the only thing between a busy instance and a
+  corpus with holes.
 
 ## Fixtures
 

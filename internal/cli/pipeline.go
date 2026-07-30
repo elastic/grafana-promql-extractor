@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -27,6 +28,10 @@ type pipeline struct {
 	tracker    *progress.Tracker
 	log        *logger
 	search     grafana.SearchOptions
+	// list configures bulk enumeration, which is used when bulk is set.
+	list grafana.ListOptions
+	// bulk enumerates whole dashboards instead of fetching them one by one.
+	bulk bool
 
 	// concurrency is how many dashboards are fetched at once.
 	concurrency int
@@ -35,23 +40,44 @@ type pipeline struct {
 	failFast bool
 }
 
+// job is one dashboard on its way through the pipeline. A search-based run
+// carries only what it takes to fetch the dashboard; a bulk run carries the
+// document the listing already delivered.
+type job struct {
+	uid      string
+	title    string
+	document []byte
+}
+
 func (p *pipeline) run(ctx context.Context) (extract.Stats, error) {
 	var stats extract.Stats
 
-	hits := make(chan grafana.DashboardHit, p.concurrency*4)
+	jobs := make(chan job, p.concurrency*4)
 	results := make(chan extract.Result, p.concurrency*4)
 
 	group, ctx := errgroup.WithContext(ctx)
 
 	group.Go(func() error {
-		defer close(hits)
-		return p.client.SearchDashboards(ctx, p.search, func(hit grafana.DashboardHit) error {
+		defer close(jobs)
+		send := func(j job) error {
 			select {
-			case hits <- hit:
+			case jobs <- j:
 				return nil
 			case <-ctx.Done():
 				return ctx.Err()
 			}
+		}
+		if p.bulk {
+			return p.client.ListDashboards(ctx, p.list, func(doc grafana.DashboardDocument) error {
+				// The document is only valid until the next one is decoded,
+				// and it outlives this call in the channel. A dashboard the
+				// listing named but did not carry arrives without one, and
+				// the worker fetches that one by uid.
+				return send(job{uid: doc.UID, document: bytes.Clone(doc.Document)})
+			})
+		}
+		return p.client.SearchDashboards(ctx, p.search, func(hit grafana.DashboardHit) error {
+			return send(job{uid: hit.UID, title: hit.Title})
 		})
 	})
 
@@ -60,16 +86,16 @@ func (p *pipeline) run(ctx context.Context) (extract.Stats, error) {
 		workers.Add(1)
 		group.Go(func() error {
 			defer workers.Done()
-			for hit := range hits {
-				result, err := p.fetch(ctx, hit)
+			for j := range jobs {
+				result, err := p.process(ctx, j)
 				if err != nil {
 					if ctx.Err() != nil {
 						return ctx.Err()
 					}
 					if p.failFast {
-						return fmt.Errorf("dashboard %s: %w", hit.UID, err)
+						return fmt.Errorf("dashboard %s: %w", j.uid, err)
 					}
-					p.log.debugf("skipping dashboard %s (%s): %v", hit.UID, hit.Title, err)
+					p.log.debugf("skipping dashboard %s (%s): %v", j.uid, j.title, err)
 					p.tracker.AddFailure()
 					continue
 				}
@@ -106,27 +132,38 @@ func (p *pipeline) run(ctx context.Context) (extract.Stats, error) {
 	return stats, err
 }
 
-// fetch downloads one dashboard and extracts its queries. The document is
-// decoded straight from the response body and dropped as soon as extraction is
-// done.
-func (p *pipeline) fetch(ctx context.Context, hit grafana.DashboardHit) (extract.Result, error) {
-	body, err := p.client.DashboardJSON(ctx, hit.UID)
+// process turns one job into queries, downloading the dashboard first unless
+// the listing already delivered it. The document is decoded straight from the
+// response body and dropped as soon as extraction is done.
+func (p *pipeline) process(ctx context.Context, j job) (extract.Result, error) {
+	if j.document != nil {
+		return p.extract(bytes.NewReader(j.document), j.uid)
+	}
+
+	body, err := p.client.DashboardJSON(ctx, j.uid)
 	if err != nil {
 		return extract.Result{}, err
 	}
 	defer body.Close()
 
-	env, err := extract.ParseEnvelope(body)
+	result, err := p.extract(body, j.uid)
+	// Drain the rest of the body so the connection can be reused.
+	io.Copy(io.Discard, body)
+	return result, err
+}
+
+func (p *pipeline) extract(document io.Reader, uid string) (extract.Result, error) {
+	env, err := extract.ParseEnvelope(document)
 	partial := errors.Is(err, extract.ErrPartialDecode)
 	if err != nil && !partial {
 		return extract.Result{}, err
 	}
-	// Drain the rest of the body so the connection can be reused.
-	io.Copy(io.Discard, body)
 
 	result := p.extractor.Extract(env)
+	// A bulk listing keeps the uid outside the document, so it comes from the
+	// job rather than from what was parsed.
 	if result.UID == "" {
-		result.UID = hit.UID
+		result.UID = uid
 	}
 	if partial {
 		result.Stats.PartialDecodes = 1

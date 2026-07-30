@@ -101,9 +101,33 @@ func run(cmd *cobra.Command, opts *options) error {
 		FolderUIDs: opts.folderUIDs,
 		Tags:       opts.tags,
 	}
+	listOpts := grafana.ListOptions{
+		PageSize:      opts.pageSize,
+		Max:           opts.maxDashboards,
+		ContinueToken: opts.continueToken,
+	}
+
+	bulk, err := chooseBulk(ctx, client, opts, log)
+	if err != nil {
+		return err
+	}
+	if bulk {
+		log.debugf("reading whole dashboards in pages of up to %d", listOpts.PageSize)
+	} else {
+		log.debugf("fetching dashboards one by one")
+	}
 
 	total := opts.maxDashboards
-	if total == 0 && opts.precount && mode != progress.ModeNever {
+	// counted stays zero unless the dashboards were actually counted, which is
+	// what makes it worth comparing the run against afterwards. A bulk run
+	// counts them whatever the settings say, since the count is the only thing
+	// that can tell a complete listing from one that quietly skipped a batch.
+	countFirst := opts.precount && mode != progress.ModeNever
+	if bulk && opts.continueToken == "" {
+		countFirst = true
+	}
+	counted := 0
+	if total == 0 && countFirst {
 		log.debugf("counting dashboards")
 		if total, err = client.CountDashboards(ctx, searchOpts); err != nil {
 			if ctx.Err() != nil {
@@ -112,6 +136,7 @@ func run(cmd *cobra.Command, opts *options) error {
 			log.warnf("could not count dashboards up front, continuing without a total: %v", err)
 			total = 0
 		} else {
+			counted = total
 			log.debugf("found %d dashboards", total)
 		}
 	}
@@ -130,6 +155,9 @@ func run(cmd *cobra.Command, opts *options) error {
 	var currentPage atomic.Int64
 	currentPage.Store(int64(searchOpts.FirstPage()))
 	searchOpts.OnPage = func(page int) { currentPage.Store(int64(page)) }
+	var currentToken atomic.Pointer[string]
+	currentToken.Store(&opts.continueToken)
+	listOpts.OnPage = func(token string) { currentToken.Store(&token) }
 
 	extraction := &pipeline{
 		client:      client,
@@ -139,6 +167,8 @@ func run(cmd *cobra.Command, opts *options) error {
 		tracker:     tracker,
 		log:         log,
 		search:      searchOpts,
+		list:        listOpts,
+		bulk:        bulk,
 		concurrency: opts.concurrency,
 		failFast:    opts.failFast,
 	}
@@ -148,10 +178,14 @@ func run(cmd *cobra.Command, opts *options) error {
 	closeErr := writer.Close()
 	tracker.Stop()
 
-	summary(cmd.ErrOrStderr(), tracker, stats, writer.Files())
+	summary(cmd.ErrOrStderr(), tracker, stats, writer.Files(), counted)
 	interrupted := errors.Is(runErr, context.Canceled) || ctx.Err() != nil
 	if runErr != nil {
-		resumeHint(cmd.ErrOrStderr(), int(currentPage.Load()), interrupted, opts)
+		resumeHint(cmd.ErrOrStderr(), resumePosition{
+			bulk:  bulk,
+			page:  int(currentPage.Load()),
+			token: *currentToken.Load(),
+		}, interrupted, opts)
 	}
 
 	if closeErr != nil {
@@ -163,7 +197,90 @@ func run(cmd *cobra.Command, opts *options) error {
 		}
 		return runErr
 	}
+	// A listing that skipped a batch ends like a complete one, so the run has
+	// to say that the output is short rather than leave it to be discovered
+	// during the analysis it feeds.
+	if delivered, _, failed := tracker.Counts(); bulk && counted > delivered+failed {
+		return fmt.Errorf("Grafana listed %s of the %s it holds and gave no reason; "+
+			"re-run with --bulk off to fetch them one by one",
+			count(delivered+failed, "dashboard", "dashboards"),
+			count(counted, "dashboard", "dashboards"))
+	}
 	return nil
+}
+
+// bulk modes.
+const (
+	bulkAuto = "auto"
+	bulkOn   = "on"
+	bulkOff  = "off"
+)
+
+// chooseBulk decides how dashboards are enumerated. Listing them in pages
+// returns whole dashboards, which turns one request per dashboard into one per
+// page, but Grafana only serves it from version 12, it cannot filter, and its
+// paging is a chain of tokens rather than numbered pages.
+//
+// It is off by default for a fourth reason: a page is assembled by reading a
+// batch of dashboards and then checking what the caller may see, and when that
+// check fails, as it does on a busy instance, the batch is left out of the page
+// while the position moves past it. The reply still says 200, so a listing can
+// come back short without anything looking wrong, which is why a run that uses
+// it counts the dashboards first and refuses to call itself complete.
+func chooseBulk(ctx context.Context, client *grafana.Client, opts *options, log *logger) (bool, error) {
+	mode := opts.bulk
+	// A continue token means nothing to the search API, so anything but a
+	// listing would silently start the run over.
+	if opts.continueToken != "" {
+		mode = bulkOn
+	}
+	if mode == bulkOff {
+		return false, nil
+	}
+
+	unsupported := bulkUnsupportedFor(opts)
+	if mode == bulkOn {
+		if unsupported != "" {
+			return false, fmt.Errorf("--bulk=on cannot be combined with %s", unsupported)
+		}
+		available, err := client.BulkAvailable(ctx)
+		if err != nil {
+			return false, err
+		}
+		if !available {
+			return false, fmt.Errorf("--bulk=on, but %w; it needs Grafana 12 or later, "+
+				"and an instance that holds at least one dashboard for this organization",
+				grafana.ErrBulkUnavailable)
+		}
+		return true, nil
+	}
+
+	if unsupported != "" {
+		log.debugf("pages cannot honor %s", unsupported)
+		return false, nil
+	}
+	available, err := client.BulkAvailable(ctx)
+	if err != nil {
+		// Enumeration works either way, so a probe that fails for its own
+		// reasons must not end the run.
+		log.debugf("could not tell whether this Grafana serves pages of dashboards: %v", err)
+		return false, nil
+	}
+	return available, nil
+}
+
+// bulkUnsupportedFor names the option that rules bulk listing out, if any.
+func bulkUnsupportedFor(opts *options) string {
+	switch {
+	case len(opts.folderUIDs) > 0:
+		return "--folder-uid"
+	case len(opts.tags) > 0:
+		return "--tag"
+	case opts.startPage > 1:
+		return "--start-page, which numbers search pages"
+	default:
+		return ""
+	}
 }
 
 // saltSource describes where the pseudonyms come from, without echoing the
@@ -202,6 +319,16 @@ func validate(opts *options) error {
 	}
 	if len(extract.NewTypeSet(opts.datasourceTypes)) == 0 {
 		return errors.New("--datasource-types must list at least one plugin type")
+	}
+	switch opts.bulk {
+	case bulkAuto, bulkOn, bulkOff:
+	default:
+		return fmt.Errorf("--bulk must be %s, %s or %s, not %q", bulkAuto, bulkOn, bulkOff, opts.bulk)
+	}
+	if opts.continueToken != "" {
+		if reason := bulkUnsupportedFor(opts); reason != "" {
+			return fmt.Errorf("--continue-token resumes a bulk listing and cannot be combined with %s", reason)
+		}
 	}
 	if opts.anonymizeSalt != "" && !opts.anonymize {
 		return errors.New("--anonymize-salt has no effect without --anonymize")

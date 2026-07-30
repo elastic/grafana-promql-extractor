@@ -192,6 +192,38 @@ func TestExtractor(t *testing.T) {
 		assertSameLines(t, linesFor(readLines(t, out), fixture.UID), fixture.Expected)
 	})
 
+	// Grafana 12 serves whole dashboards in pages, and returns them migrated to
+	// the current schema rather than as stored. Only a real instance can show
+	// that this yields the same queries as fetching each dashboard by uid.
+	t.Run("BulkListing", func(t *testing.T) {
+		perDashboard := filepath.Join(t.TempDir(), "queries.txt")
+		run(t, instance, perDashboard, "--compress=false", "--bulk", "off")
+
+		bulk := filepath.Join(t.TempDir(), "queries.txt")
+		stderr, err := execute(t, "--url", instance.URL, "-o", bulk, "--progress", "never",
+			"--user", instance.AdminUser(), "--password", instance.AdminPassword(),
+			"--compress=false", "--bulk", "on", "--verbose")
+		if err != nil {
+			if strings.Contains(err.Error(), "Grafana 12") {
+				t.Skipf("this Grafana does not serve dashboards in bulk: %v", err)
+			}
+			t.Fatalf("bulk run failed: %v\n%s", err, stderr)
+		}
+
+		assertSameLines(t, readLines(t, bulk), readLines(t, perDashboard))
+		assertSameLines(t, readLines(t, bulk), testsupport.ExpectedLines(instance.All()))
+	})
+
+	// Whichever strategy a release supports, the default has to produce the
+	// documented output without being told which one to use.
+	t.Run("BulkAuto", func(t *testing.T) {
+		out := filepath.Join(t.TempDir(), "queries.txt")
+		stderr := run(t, instance, out, "--compress=false", "--verbose", "--bulk", "auto")
+
+		assertSameLines(t, readLines(t, out), testsupport.ExpectedLines(instance.All()))
+		t.Logf("strategy: %s", strategyLine(stderr))
+	})
+
 	t.Run("RejectsBadCredentials", func(t *testing.T) {
 		out := filepath.Join(t.TempDir(), "queries.txt")
 		_, err := execute(t, "--url", instance.URL, "-o", out,
@@ -201,6 +233,20 @@ func TestExtractor(t *testing.T) {
 			t.Fatal("expected the run to fail with bad credentials")
 		}
 	})
+}
+
+// strategyLine picks the verbose line naming how dashboards were enumerated,
+// which depends on the Grafana version under test.
+func strategyLine(stderr string) string {
+	for _, line := range strings.Split(stderr, "\n") {
+		if strings.Contains(line, "dashboards one by one") || strings.Contains(line, "in pages of up to") {
+			return strings.TrimSpace(line)
+		}
+		if strings.Contains(line, "pages cannot honor") {
+			return strings.TrimSpace(line)
+		}
+	}
+	return "not reported"
 }
 
 // datasourceSourceLine picks the verbose line naming the endpoint the

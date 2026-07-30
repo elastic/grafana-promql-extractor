@@ -6,9 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/url"
+	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -44,29 +45,51 @@ func TestCorpusThroughput(t *testing.T) {
 	uploadStart := time.Now()
 	uploaded := instance.uploadCorpus(t, dashboards, FolderUID)
 	upload := time.Since(uploadStart)
-	searchable := instance.waitForFolder(t, FolderUID, uploaded)
-	t.Logf("provisioned %d of %d dashboards in %s, %d of them listed by search",
+	// Bulk listing covers the whole instance, so the measurement does too,
+	// fixtures included, and every run sees the same set.
+	searchable := instance.waitForSearchable(t, len(instance.All())+uploaded)
+	t.Logf("provisioned %d of %d dashboards in %s, %d dashboards listed in total",
 		uploaded, len(dashboards), upload.Round(time.Millisecond), searchable)
 
 	// A first pass lets Grafana fill its caches, so that the numbers below
 	// compare the extractor's settings rather than the state of the instance.
-	instance.measure(t, "warm-up", 8)
+	if _, err := instance.measure(t, "warm-up", 8, "--bulk", "off"); err != nil {
+		t.Fatalf("warm-up run failed: %v", err)
+	}
 
 	runs := []struct {
 		label       string
 		concurrency int
 		args        []string
 	}{
-		{label: "sequential", concurrency: 1},
-		{label: "default", concurrency: 8},
-		{label: "concurrency 16", concurrency: 16},
-		{label: "anonymized", concurrency: 8, args: []string{"--anonymize"}},
-		{label: "anonymized, gzipped", concurrency: 8, args: []string{"--anonymize", "--compress=true"}},
+		{label: "one by one, 1 worker", concurrency: 1, args: []string{"--bulk", "off"}},
+		{label: "one by one, 8 workers", concurrency: 8, args: []string{"--bulk", "off"}},
+		{label: "one by one, 16 workers", concurrency: 16, args: []string{"--bulk", "off"}},
+		{label: "one by one, anonymized", concurrency: 8, args: []string{"--bulk", "off", "--anonymize"}},
+		{label: "in pages", concurrency: 8, args: []string{"--bulk", "on"}},
+		{label: "in pages, anonymized", concurrency: 8, args: []string{"--bulk", "on", "--anonymize"}},
+		{label: "in pages, gzipped", concurrency: 8, args: []string{"--bulk", "on", "--anonymize", "--compress=true"}},
 	}
 
 	results := make([]measurement, 0, len(runs))
 	for _, run := range runs {
-		results = append(results, instance.measure(t, run.label, run.concurrency, run.args...))
+		// A run reading dashboards in pages fails when Grafana leaves a batch
+		// out of one, which it does now and then under the load of this test.
+		// The tool is right to refuse that result; measuring it is pointless,
+		// so the run is repeated and, failing twice, left out.
+		var result measurement
+		var err error
+		for attempt := range 3 {
+			if result, err = instance.measure(t, run.label, run.concurrency, run.args...); err == nil {
+				break
+			}
+			t.Logf("attempt %d of %q did not finish: %v", attempt+1, run.label, err)
+		}
+		if err != nil {
+			t.Logf("leaving %q out of the comparison", run.label)
+			continue
+		}
+		results = append(results, result)
 	}
 
 	t.Logf("extracting %d grafana.com dashboards from Grafana %s:", searchable, image())
@@ -77,12 +100,19 @@ func TestCorpusThroughput(t *testing.T) {
 			projected.Round(time.Second), projectedSize)
 	}
 
-	// The settings must not change the result, only how fast it arrives.
-	// Anonymization runs after deduplication, so it cannot merge queries either.
+	// The settings must not change the result, only how fast it arrives. This
+	// is also the parity check between the two ways of reading dashboards, over
+	// a thousand real ones: listing them in pages hands back documents Grafana
+	// has migrated to the current schema, and that has to yield exactly the
+	// queries that fetching each dashboard by uid does. Anonymization runs
+	// after deduplication, so it cannot merge queries either.
 	for _, r := range results[1:] {
 		if r.dashboards != results[0].dashboards || r.queries != results[0].queries {
 			t.Errorf("%s extracted %d queries from %d dashboards, but %s extracted %d from %d",
 				r.label, r.queries, r.dashboards, results[0].label, results[0].queries, results[0].dashboards)
+			if r.plain && results[0].plain {
+				reportDifferences(t, results[0], r)
+			}
 		}
 	}
 	if results[0].dashboards != searchable {
@@ -98,9 +128,13 @@ func TestCorpusThroughput(t *testing.T) {
 // measurement is the outcome of one extraction run.
 type measurement struct {
 	label      string
+	path       string
 	elapsed    time.Duration
 	dashboards int
 	queries    int
+	// plain marks a run whose queries can be compared with another run's,
+	// which pseudonymized ones cannot.
+	plain bool
 }
 
 func (m measurement) rate() float64 {
@@ -110,36 +144,97 @@ func (m measurement) rate() float64 {
 	return float64(m.dashboards) / m.elapsed.Seconds()
 }
 
-// measure runs one extraction over the corpus folder and times it. The folder
-// filter keeps the curated fixtures out, so the numbers cover the corpus only.
-func (i *Instance) measure(t *testing.T, label string, concurrency int, extra ...string) measurement {
+// measure runs one extraction over the whole instance and times it.
+func (i *Instance) measure(t *testing.T, label string, concurrency int, extra ...string) (measurement, error) {
 	t.Helper()
 
 	out := filepath.Join(t.TempDir(), "queries.txt")
 	args := append([]string{
 		"--url", i.URL,
 		"--token", i.ViewerToken,
-		"--folder-uid", FolderUID,
 		"-o", out,
 		"--compress=false",
 		"--progress", "never",
+		"--verbose",
 		"--concurrency", strconv.Itoa(concurrency),
 	}, extra...)
 
 	start := time.Now()
 	stderr, err := execute(t, args...)
 	elapsed := time.Since(start)
-	if err != nil {
-		t.Fatalf("%s run failed: %v\n%s", label, err, stderr)
-	}
 	t.Logf("%s (concurrency %d) took %s\n%s", label, concurrency, elapsed.Round(time.Millisecond), stderr)
+	if err != nil {
+		return measurement{}, err
+	}
 
 	return measurement{
 		label:      label,
+		path:       out,
 		elapsed:    elapsed,
 		dashboards: summaryCount(t, processedPattern, stderr),
 		queries:    summaryCount(t, queriesPattern, stderr),
+		plain:      !slices.Contains(extra, "--anonymize"),
+	}, nil
+}
+
+// reportDifferences names the dashboards two runs disagree about, since a bare
+// count says nothing about whether the extra queries are a gain or a loss.
+func reportDifferences(t *testing.T, a, b measurement) {
+	t.Helper()
+
+	left, right := queriesByDashboard(t, a.path), queriesByDashboard(t, b.path)
+	uids := make(map[string]bool, len(left)+len(right))
+	for uid := range left {
+		uids[uid] = true
 	}
+	for uid := range right {
+		uids[uid] = true
+	}
+
+	reported := 0
+	for uid := range uids {
+		only := difference(left[uid], right[uid])
+		extra := difference(right[uid], left[uid])
+		if len(only) == 0 && len(extra) == 0 {
+			continue
+		}
+		reported++
+		if reported > 10 {
+			continue
+		}
+		t.Logf("dashboard %s: %d queries only in %q, %d only in %q", uid, len(only), a.label, len(extra), b.label)
+		for _, query := range only {
+			t.Logf("    only %s: %s", a.label, truncate(query))
+		}
+		for _, query := range extra {
+			t.Logf("    only %s: %s", b.label, truncate(query))
+		}
+	}
+	t.Logf("%d dashboards differ between %q and %q", reported, a.label, b.label)
+}
+
+func queriesByDashboard(t *testing.T, path string) map[string][]string {
+	t.Helper()
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading %s: %v", path, err)
+	}
+	queries := make(map[string][]string)
+	for line := range strings.SplitSeq(strings.TrimSpace(string(data)), "\n") {
+		uid, query, found := strings.Cut(line, ";")
+		if found {
+			queries[uid] = append(queries[uid], query)
+		}
+	}
+	return queries
+}
+
+func truncate(query string) string {
+	if len(query) > 160 {
+		return query[:160] + "..."
+	}
+	return query
 }
 
 var (
@@ -163,34 +258,33 @@ func summaryCount(t *testing.T, pattern *regexp.Regexp, stderr string) int {
 	return value
 }
 
-// waitForFolder waits until Grafana lists want dashboards in the folder and
-// returns how many it ends up listing. Indexing is asynchronous, and a release
-// that never catches up should still yield a measurement over the dashboards it
-// does serve, so a shortfall is only reported.
-func (i *Instance) waitForFolder(t *testing.T, folderUID string, want int) int {
+// waitForSearchable waits until Grafana lists want dashboards and returns how
+// many it ends up listing. Indexing is asynchronous, and a release that never
+// catches up should still yield a measurement over the dashboards it does
+// serve, so a shortfall is only reported.
+func (i *Instance) waitForSearchable(t *testing.T, want int) int {
 	t.Helper()
 
 	deadline := time.Now().Add(indexingTimeout)
 	for {
-		count := i.countInFolder(t, folderUID)
+		count := i.searchableCount(t)
 		if count >= want {
 			return count
 		}
 		if time.Now().After(deadline) {
-			t.Logf("Grafana lists %d of the %d uploaded dashboards after %s", count, want, indexingTimeout)
+			t.Logf("Grafana lists %d of the %d dashboards uploaded after %s", count, want, indexingTimeout)
 			return count
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
 }
 
-func (i *Instance) countInFolder(t *testing.T, folderUID string) int {
+func (i *Instance) searchableCount(t *testing.T) int {
 	t.Helper()
 
-	path := fmt.Sprintf("/api/search?type=dash-db&limit=5000&folderUIDs=%s", url.QueryEscape(folderUID))
-	resp, err := i.client.Do(i.request(t, http.MethodGet, path, nil))
+	resp, err := i.client.Do(i.request(t, http.MethodGet, "/api/search?type=dash-db&limit=5000", nil))
 	if err != nil {
-		t.Fatalf("searching folder %s: %v", folderUID, err)
+		t.Fatalf("searching dashboards: %v", err)
 	}
 	defer resp.Body.Close()
 
