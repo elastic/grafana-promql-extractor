@@ -1,5 +1,3 @@
-// Package extract parses Grafana dashboard JSON and pulls out the PromQL
-// expressions of panel targets backed by a Prometheus-family datasource.
 package extract
 
 import (

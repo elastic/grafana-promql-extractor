@@ -10,6 +10,14 @@ make lint   # gofmt and go vet, including the tagged builds
 make test   # unit tests, a few seconds
 ```
 
+## Where documentation goes
+
+The README covers what a user can observe: the flags worth knowing, the output format, what
+ends up in the file and what does not, rough expectations at scale. How it works goes in a
+package doc comment, in a `doc.go` when it runs long, where `go doc` finds it and where it
+gets updated along with the code. Do not restate `--help` in a table, and link a mechanism
+rather than explain it twice.
+
 ## Test tiers
 
 | Command | Needs | When |
@@ -51,8 +59,8 @@ are two orders of magnitude larger.
 ## The bulk listing
 
 `--bulk` reads dashboards in pages from the Kubernetes-style API of Grafana 12, and is on by
-default where the instance serves it. Two things about it are easy to break and hard to
-notice:
+default where the instance serves it. `go doc ./internal/cli` explains the mechanism; two
+things about it are easy to break and hard to notice:
 
 - It asks for `v0alpha1` on purpose. That version returns the document as stored; the later
   ones migrate it and drop `__inputs`, after which exported dashboards lose their datasource
