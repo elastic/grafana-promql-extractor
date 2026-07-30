@@ -41,7 +41,8 @@ snapshot:
 
 changelog:
   use: github
-  sort: asc
+  # No sort: goreleaser's asc and desc order entries by commit message text, so
+  # the notes come out alphabetical. Unset keeps git order, newest first.
   filters:
     exclude:
       - "^docs:"
