@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/felixbarny/grafana-promql-extractor/internal/anonymize"
+	"github.com/elastic/grafana-promql-extractor/internal/anonymize"
 )
 
 // corpusSalt fixes the pseudonyms, so that the test can reproduce the mapping

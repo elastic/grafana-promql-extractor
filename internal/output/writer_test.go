@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/felixbarny/grafana-promql-extractor/internal/output"
+	"github.com/elastic/grafana-promql-extractor/internal/output"
 )
 
 func TestWritesPlainFile(t *testing.T) {

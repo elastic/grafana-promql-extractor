@@ -11,7 +11,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/felixbarny/grafana-promql-extractor/internal/grafana"
+	"github.com/elastic/grafana-promql-extractor/internal/grafana"
 )
 
 //go:embed testdata/dashboards

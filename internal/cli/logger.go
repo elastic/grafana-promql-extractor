@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/felixbarny/grafana-promql-extractor/internal/progress"
+	"github.com/elastic/grafana-promql-extractor/internal/progress"
 )
 
 // logger routes warnings around the progress line so they are not overwritten.

@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/felixbarny/grafana-promql-extractor/internal/grafana"
-	"github.com/felixbarny/grafana-promql-extractor/internal/testsupport"
+	"github.com/elastic/grafana-promql-extractor/internal/grafana"
+	"github.com/elastic/grafana-promql-extractor/internal/testsupport"
 )
 
 func TestLoadRegistryFromDatasourcesAPI(t *testing.T) {

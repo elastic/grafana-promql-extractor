@@ -16,11 +16,11 @@ queries are both extracted, since Grafana runs both against the datasource.
 
 ## Install
 
-Download a binary for your platform from the [releases page](https://github.com/felixbarny/grafana-promql-extractor/releases),
+Download a binary for your platform from the [releases page](https://github.com/elastic/grafana-promql-extractor/releases),
 or build from source:
 
 ```bash
-go install github.com/felixbarny/grafana-promql-extractor@latest
+go install github.com/elastic/grafana-promql-extractor@latest
 ```
 
 The binary is statically linked with no runtime dependencies.

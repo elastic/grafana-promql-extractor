@@ -23,7 +23,7 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 
-	"github.com/felixbarny/grafana-promql-extractor/internal/testsupport"
+	"github.com/elastic/grafana-promql-extractor/internal/testsupport"
 )
 
 const (

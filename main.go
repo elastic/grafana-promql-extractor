@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/felixbarny/grafana-promql-extractor/internal/cli"
+	"github.com/elastic/grafana-promql-extractor/internal/cli"
 )
 
 func main() {

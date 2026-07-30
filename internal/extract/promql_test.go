@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/felixbarny/grafana-promql-extractor/internal/extract"
-	"github.com/felixbarny/grafana-promql-extractor/internal/testsupport"
+	"github.com/elastic/grafana-promql-extractor/internal/extract"
+	"github.com/elastic/grafana-promql-extractor/internal/testsupport"
 )
 
 var update = flag.Bool("update", false, "rewrite the .expected files of the dashboard fixtures")

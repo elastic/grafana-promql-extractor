@@ -11,11 +11,11 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/felixbarny/grafana-promql-extractor/internal/anonymize"
-	"github.com/felixbarny/grafana-promql-extractor/internal/extract"
-	"github.com/felixbarny/grafana-promql-extractor/internal/grafana"
-	"github.com/felixbarny/grafana-promql-extractor/internal/output"
-	"github.com/felixbarny/grafana-promql-extractor/internal/progress"
+	"github.com/elastic/grafana-promql-extractor/internal/anonymize"
+	"github.com/elastic/grafana-promql-extractor/internal/extract"
+	"github.com/elastic/grafana-promql-extractor/internal/grafana"
+	"github.com/elastic/grafana-promql-extractor/internal/output"
+	"github.com/elastic/grafana-promql-extractor/internal/progress"
 )
 
 // ErrInterrupted is returned when the run was cancelled by a signal. Output

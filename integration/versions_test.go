@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/felixbarny/grafana-promql-extractor/corpus"
+	"github.com/elastic/grafana-promql-extractor/corpus"
 )
 
 // versionsUnderTest are the releases community dashboards are extracted from.

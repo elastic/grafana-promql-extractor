@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/felixbarny/grafana-promql-extractor/internal/testsupport"
+	"github.com/elastic/grafana-promql-extractor/internal/testsupport"
 )
 
 // TestBulkListingExtractsTheSameQueries is the parity check between the two

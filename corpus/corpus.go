@@ -35,7 +35,7 @@ const (
 	maxAttempts            = 3
 
 	userAgent = "grafana-promql-extractor-corpus-test/1.0 " +
-		"(+https://github.com/felixbarny/grafana-promql-extractor)"
+		"(+https://github.com/elastic/grafana-promql-extractor)"
 )
 
 // Entry is one dashboard in the grafana.com catalog.

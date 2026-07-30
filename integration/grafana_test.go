@@ -15,8 +15,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/felixbarny/grafana-promql-extractor/internal/cli"
-	"github.com/felixbarny/grafana-promql-extractor/internal/testsupport"
+	"github.com/elastic/grafana-promql-extractor/internal/cli"
+	"github.com/elastic/grafana-promql-extractor/internal/testsupport"
 )
 
 // generatedDashboards is chosen so that pagination and file splitting both need

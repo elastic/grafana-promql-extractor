@@ -6,7 +6,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/felixbarny/grafana-promql-extractor/internal/progress"
+	"github.com/elastic/grafana-promql-extractor/internal/progress"
 )
 
 func TestParseMode(t *testing.T) {

@@ -1,4 +1,4 @@
-module github.com/felixbarny/grafana-promql-extractor
+module github.com/elastic/grafana-promql-extractor
 
 go 1.26.2
 

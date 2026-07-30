@@ -10,11 +10,11 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
-	"github.com/felixbarny/grafana-promql-extractor/internal/anonymize"
-	"github.com/felixbarny/grafana-promql-extractor/internal/extract"
-	"github.com/felixbarny/grafana-promql-extractor/internal/grafana"
-	"github.com/felixbarny/grafana-promql-extractor/internal/output"
-	"github.com/felixbarny/grafana-promql-extractor/internal/progress"
+	"github.com/elastic/grafana-promql-extractor/internal/anonymize"
+	"github.com/elastic/grafana-promql-extractor/internal/extract"
+	"github.com/elastic/grafana-promql-extractor/internal/grafana"
+	"github.com/elastic/grafana-promql-extractor/internal/output"
+	"github.com/elastic/grafana-promql-extractor/internal/progress"
 )
 
 // pipeline streams dashboards from search into a worker pool and funnels the

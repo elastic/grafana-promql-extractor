@@ -9,9 +9,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/felixbarny/grafana-promql-extractor/internal/extract"
-	"github.com/felixbarny/grafana-promql-extractor/internal/grafana"
-	"github.com/felixbarny/grafana-promql-extractor/internal/progress"
+	"github.com/elastic/grafana-promql-extractor/internal/extract"
+	"github.com/elastic/grafana-promql-extractor/internal/grafana"
+	"github.com/elastic/grafana-promql-extractor/internal/progress"
 )
 
 // version is overridden at build time via -ldflags.
