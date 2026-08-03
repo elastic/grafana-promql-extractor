@@ -1,6 +1,9 @@
 // Package cli implements the command line interface.
 //
-// # The pipeline
+// The root command groups two subcommands: extract pulls PromQL from Grafana,
+// and analyze checks an export file against Elasticsearch PromQL.
+//
+// # The extract pipeline
 //
 // A run enumerates dashboards, fetches them through a worker pool and funnels
 // the extracted queries through a single writer, so that only --concurrency

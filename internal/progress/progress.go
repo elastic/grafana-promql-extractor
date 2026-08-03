@@ -42,6 +42,13 @@ func ParseMode(s string) (Mode, error) {
 	return "", fmt.Errorf("invalid progress mode %q: want auto, always or never", s)
 }
 
+const (
+	// UnitDashboards labels the primary counter for extract runs.
+	UnitDashboards = "dashboards"
+	// UnitQueries labels the primary counter for analyze runs.
+	UnitQueries = "queries"
+)
+
 // Tracker counts progress and renders it periodically.
 type Tracker struct {
 	out      io.Writer
@@ -49,6 +56,7 @@ type Tracker struct {
 	enabled  bool
 	interval time.Duration
 	width    int
+	unit     string
 
 	// total is fixed at construction; zero means unknown.
 	total      int64
@@ -73,6 +81,7 @@ func New(out io.Writer, total int, mode Mode) *Tracker {
 		out:      out,
 		tty:      tty || mode == ModeAlways,
 		enabled:  mode != ModeNever,
+		unit:     UnitDashboards,
 		total:    int64(total),
 		start:    time.Now(),
 		width:    terminalWidth(out),
@@ -84,6 +93,14 @@ func New(out io.Writer, total int, mode Mode) *Tracker {
 		t.interval = ttyInterval
 	}
 	return t
+}
+
+// SetUnit sets the label for the primary counter. Call before Start.
+func (t *Tracker) SetUnit(unit string) {
+	if unit == "" {
+		unit = UnitDashboards
+	}
+	t.unit = unit
 }
 
 // Start begins rendering until Stop is called. Calling Stop without Start is
@@ -157,6 +174,12 @@ func (t *Tracker) AddDashboard(queries int) {
 	}
 }
 
+// AddQuery records one processed query when the tracker unit is queries.
+func (t *Tracker) AddQuery() {
+	t.dashboards.Add(1)
+	t.queries.Add(1)
+}
+
 // AddFailure records a dashboard that could not be processed.
 func (t *Tracker) AddFailure() {
 	t.failures.Add(1)
@@ -188,28 +211,34 @@ func (t *Tracker) render() {
 }
 
 func (t *Tracker) line() string {
-	dashboards := t.dashboards.Load()
+	done := t.dashboards.Load()
 	queries := t.queries.Load()
 	failures := t.failures.Load()
 	total := t.total
 	elapsed := time.Since(t.start)
+	unit := t.unit
+	if unit == "" {
+		unit = UnitDashboards
+	}
 
 	var b strings.Builder
 	if total > 0 {
-		percent := float64(dashboards) / float64(total) * 100
-		fmt.Fprintf(&b, "%5.1f%% | %s/%s dashboards", percent, HumanInt(dashboards), HumanInt(total))
+		percent := float64(done) / float64(total) * 100
+		fmt.Fprintf(&b, "%5.1f%% | %s/%s %s", percent, HumanInt(done), HumanInt(total), unit)
 	} else {
-		fmt.Fprintf(&b, "%s dashboards", HumanInt(dashboards))
+		fmt.Fprintf(&b, "%s %s", HumanInt(done), unit)
 	}
-	fmt.Fprintf(&b, " | %s queries", HumanInt(queries))
+	if unit == UnitDashboards {
+		fmt.Fprintf(&b, " | %s queries", HumanInt(queries))
+	}
 
-	rate := float64(dashboards) / elapsed.Seconds()
+	rate := float64(done) / elapsed.Seconds()
 	if elapsed > time.Second && rate > 0 {
 		fmt.Fprintf(&b, " | %.0f/s", rate)
 	}
 	fmt.Fprintf(&b, " | %s", truncateDuration(elapsed))
-	if total > 0 && rate > 0 && dashboards < total {
-		remaining := time.Duration(float64(total-dashboards)/rate) * time.Second
+	if total > 0 && rate > 0 && done < total {
+		remaining := time.Duration(float64(total-done)/rate) * time.Second
 		fmt.Fprintf(&b, " | ~%s left", truncateDuration(remaining))
 	}
 	if failures > 0 {
