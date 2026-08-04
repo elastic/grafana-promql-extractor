@@ -286,7 +286,7 @@ func execute(t *testing.T, args ...string) (string, error) {
 	var stderr bytes.Buffer
 	cmd.SetOut(&stderr)
 	cmd.SetErr(&stderr)
-	cmd.SetArgs(args)
+	cmd.SetArgs(append([]string{"extract"}, args...))
 	err := cmd.ExecuteContext(context.Background())
 	return stderr.String(), err
 }

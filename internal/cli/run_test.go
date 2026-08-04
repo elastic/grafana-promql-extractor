@@ -18,9 +18,14 @@ import (
 	"github.com/elastic/grafana-promql-extractor/internal/testsupport"
 )
 
-// runCLI drives the real command in process and returns everything it wrote to
-// stderr.
+// runCLI drives the real extract command in process and returns everything it
+// wrote to stderr.
 func runCLI(t *testing.T, args ...string) (string, error) {
+	t.Helper()
+	return runRootCLI(t, append([]string{"extract"}, args...)...)
+}
+
+func runRootCLI(t *testing.T, args ...string) (string, error) {
 	t.Helper()
 
 	cmd := cli.NewRootCmd()
@@ -410,6 +415,16 @@ func TestRequiresURL(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "GRAFANA_URL") {
 		t.Errorf("error should mention the environment variable, got %v", err)
+	}
+}
+
+func TestRootRequiresSubcommand(t *testing.T) {
+	_, err := runRootCLI(t)
+	if err == nil {
+		t.Fatal("expected an error without a subcommand")
+	}
+	if !strings.Contains(err.Error(), "extract") {
+		t.Errorf("error = %v", err)
 	}
 }
 
