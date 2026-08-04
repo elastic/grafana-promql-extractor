@@ -107,7 +107,7 @@ func esImage() string {
 	}
 	version := strings.TrimSpace(os.Getenv("ES_VERSION"))
 	if version == "" {
-		version = "9.5.0"
+		version = "9.4.4"
 	}
 	return analyze.ResolveImage(version)
 }
