@@ -423,7 +423,7 @@ func TestRootRequiresSubcommand(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected an error without a subcommand")
 	}
-	if !strings.Contains(err.Error(), "extract") {
+	if !strings.Contains(err.Error(), "extract or analyze") {
 		t.Errorf("error = %v", err)
 	}
 }

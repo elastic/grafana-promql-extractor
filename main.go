@@ -1,5 +1,5 @@
-// Command grafana-promql-extractor extracts PromQL queries from the
-// dashboards of a Grafana instance.
+// Command grafana-promql-extractor extracts PromQL from Grafana dashboards
+// and can analyze export files against Elasticsearch PromQL.
 package main
 
 import (

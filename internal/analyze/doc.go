@@ -17,8 +17,26 @@
 // each query and feeds a running report that only retains aggregated counts and
 // error groups.
 //
+// # Populating the index
+//
+// analyze starts Docker, seeds referenced metrics and labels into
+// metrics-generic.prometheus-default through remote write, then runs queries
+// against a five-minute query_range window that ends at the same timestamp as
+// the remote-write samples. One sample per series is enough for fields to appear in the mapping; exact label values
+// matter less than the names being present.
+//
 // # Grafana variables
 //
 // Before querying, [$var] range durations become [1m], and $var / ${var} label
 // placeholders become bare identifiers, matching the Java PromqlCoverageAnalyzer.
+//
+// # Docker
+//
+// --es-version or --es-image starts a single-node Elasticsearch container with
+// testcontainers, populates the Prometheus data stream, waits until the PromQL
+// query_range endpoint accepts requests, runs the analysis, and stops the
+// container when the command exits. The two flags are mutually exclusive:
+// --es-version resolves to docker.elastic.co/elasticsearch/elasticsearch:<version>,
+// while --es-image takes a full image reference. PromQL requires Elasticsearch
+// 9.4 or later.
 package analyze
