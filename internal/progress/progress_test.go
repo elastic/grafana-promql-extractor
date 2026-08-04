@@ -106,3 +106,15 @@ func TestStopIsIdempotent(t *testing.T) {
 	tracker.Stop()
 	tracker.Stop()
 }
+
+func TestAddQueryCounts(t *testing.T) {
+	tracker := progress.New(&bytes.Buffer{}, 10, progress.ModeNever)
+	tracker.SetUnit(progress.UnitQueries)
+	tracker.AddQuery()
+	tracker.AddQuery()
+
+	done, queries, failures := tracker.Counts()
+	if done != 2 || queries != 2 || failures != 0 {
+		t.Fatalf("Counts() = %d/%d/%d, want 2/2/0", done, queries, failures)
+	}
+}
