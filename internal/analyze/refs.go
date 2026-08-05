@@ -124,12 +124,20 @@ func (c *refCollector) collectMetric(me *metricsql.MetricExpr) {
 	labels := map[string]string{}
 	for _, group := range me.LabelFilterss {
 		for _, lf := range group {
-			if lf.IsRegexp || lf.IsNegative {
+			if lf.Label == "" {
 				continue
 			}
 			if lf.Label == "__name__" {
-				if name == "" {
+				if name == "" && !lf.IsRegexp && !lf.IsNegative {
 					name = lf.Value
+				}
+				continue
+			}
+			// Equality keeps the concrete value; regexp and negative matchers
+			// still need the label name in the mapping.
+			if lf.IsRegexp || lf.IsNegative {
+				if _, ok := labels[lf.Label]; !ok {
+					labels[lf.Label] = "bootstrap"
 				}
 				continue
 			}

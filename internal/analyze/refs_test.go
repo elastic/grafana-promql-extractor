@@ -12,6 +12,8 @@ func TestSeriesCollector(t *testing.T) {
 		`sum(rate(http_requests_total{job="api"}[5m])) by (cluster)`,
 		`node_cpu_seconds_total{instance="localhost"}`,
 		`foo * on(instance) group_left(role) bar`,
+		`disk_usage_bytes{device=~"/dev/.*",fstype!="tmpfs"}`,
+		`{__name__="up",job=~"prometheus.*"}`,
 	} {
 		c.AddQuery(query)
 	}
@@ -39,5 +41,24 @@ func TestSeriesCollector(t *testing.T) {
 	}
 	if http.Labels["role"] != "bootstrap" {
 		t.Fatalf("expected group_left() label role, got %#v", http.Labels)
+	}
+
+	disk, ok := byMetric["disk_usage_bytes"]
+	if !ok {
+		t.Fatalf("missing disk_usage_bytes in %+v", byMetric)
+	}
+	if disk.Labels["device"] != "bootstrap" {
+		t.Fatalf("expected regexp label device, got %#v", disk.Labels)
+	}
+	if disk.Labels["fstype"] != "bootstrap" {
+		t.Fatalf("expected negative label fstype, got %#v", disk.Labels)
+	}
+
+	up, ok := byMetric["up"]
+	if !ok {
+		t.Fatalf("missing up in %+v", byMetric)
+	}
+	if up.Labels["job"] != "bootstrap" {
+		t.Fatalf("expected regexp job on __name__ selector, got %#v", up.Labels)
 	}
 }
