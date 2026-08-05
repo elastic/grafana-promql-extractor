@@ -32,7 +32,7 @@ func TestAnalyzeCLI(t *testing.T) {
 		"analyze",
 		"-i", input,
 		"-o", output,
-		"--es-image", esImage(),
+		"--es-image", esImage(t),
 		"--progress", "never",
 	})
 	if err := cmd.ExecuteContext(context.Background()); err != nil {
@@ -51,7 +51,8 @@ func TestAnalyzeCLI(t *testing.T) {
 	}
 }
 
-func esImage() string {
+func esImage(t *testing.T) string {
+	t.Helper()
 	if img := strings.TrimSpace(os.Getenv("ES_IMAGE")); img != "" {
 		return img
 	}
@@ -59,5 +60,9 @@ func esImage() string {
 	if version == "" {
 		version = "9.4.4"
 	}
-	return analyze.ResolveImage(version)
+	img, err := analyze.ResolveImage(version)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return img
 }

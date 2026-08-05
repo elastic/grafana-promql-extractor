@@ -21,9 +21,10 @@
 // --es-version or --es-image starts a single-node Elasticsearch container with
 // testcontainers, waits until the PromQL query_range endpoint accepts requests,
 // runs the analysis, and stops the container when the command exits. The two
-// flags are mutually exclusive: --es-version resolves to
-// docker.elastic.co/elasticsearch/elasticsearch:<version>, while --es-image takes
-// a full image reference. PromQL requires Elasticsearch 9.4 or later.
+// flags are mutually exclusive: --es-version takes a full version such as 9.5.0
+// and resolves to docker.elastic.co/elasticsearch/elasticsearch:<version>, while
+// --es-image takes a full image reference. PromQL requires Elasticsearch 9.4 or
+// later.
 //
 // # Grafana variables
 //

@@ -114,7 +114,7 @@ func resolveAnalyzeImage(version, image string) (string, error) {
 	case image != "":
 		return image, nil
 	case version != "":
-		return analyze.ResolveImage(version), nil
+		return analyze.ResolveImage(version)
 	default:
 		return "", fmt.Errorf("--es-version or --es-image is required (or set ES_VERSION / ES_IMAGE)")
 	}

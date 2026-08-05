@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/testcontainers/testcontainers-go"
@@ -41,20 +42,42 @@ type Cluster struct {
 }
 
 // ResolveImage maps a version string or full image reference to a container
-// image name. Bare major.minor versions get ".0" appended. An empty version
-// defaults to 9.4.4.
-func ResolveImage(version string) string {
+// image name. Versions must be complete (for example 9.5.0 or 9.5.0-SNAPSHOT);
+// major.minor alone is rejected. An empty version defaults to 9.4.4.
+func ResolveImage(version string) (string, error) {
 	version = strings.TrimSpace(version)
 	if version == "" {
-		return esImagePrefix + "9.4.4"
+		return esImagePrefix + "9.4.4", nil
 	}
 	if strings.Contains(version, "/") {
-		return version
+		return version, nil
 	}
-	if strings.Count(version, ".") == 1 {
-		version += ".0"
+	if !isFullESVersion(version) {
+		return "", fmt.Errorf("elasticsearch version %q must be a full version such as 9.5.0", version)
 	}
-	return esImagePrefix + version
+	return esImagePrefix + version, nil
+}
+
+func isFullESVersion(version string) bool {
+	base := version
+	if i := strings.IndexByte(version, '-'); i >= 0 {
+		base = version[:i]
+	}
+	parts := strings.Split(base, ".")
+	if len(parts) != 3 {
+		return false
+	}
+	for _, part := range parts {
+		if part == "" {
+			return false
+		}
+		for _, c := range part {
+			if c < '0' || c > '9' {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // StartElasticsearch boots a single-node Elasticsearch container from image
@@ -89,8 +112,13 @@ func StartElasticsearch(ctx context.Context, image string) (*Cluster, error) {
 		return nil, fmt.Errorf("starting Elasticsearch %s: %w", image, err)
 	}
 
+	var closeOnce sync.Once
+	var closeErr error
 	closeFn := func(ctx context.Context) error {
-		return container.Terminate(ctx)
+		closeOnce.Do(func() {
+			closeErr = container.Terminate(ctx)
+		})
+		return closeErr
 	}
 
 	host, err := container.Host(ctx)
