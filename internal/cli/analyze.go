@@ -76,9 +76,22 @@ Unsupported language constructs return an error that is grouped in the report.`)
 }
 
 func applyAnalyzeEnv(cmd *cobra.Command) error {
+	versionFlag := cmd.Flags().Lookup("es-version")
+	imageFlag := cmd.Flags().Lookup("es-image")
+	versionChanged := versionFlag != nil && versionFlag.Changed
+	imageChanged := imageFlag != nil && imageFlag.Changed
+
 	for name, env := range analyzeEnvForFlag {
 		flag := cmd.Flags().Lookup(name)
 		if flag == nil || flag.Changed {
+			continue
+		}
+		// An explicit CLI choice for the other mutually exclusive flag wins over
+		// this environment variable, so ES_IMAGE does not fight --es-version.
+		if name == "es-image" && versionChanged {
+			continue
+		}
+		if name == "es-version" && imageChanged {
 			continue
 		}
 		value := strings.TrimSpace(os.Getenv(env))
@@ -156,7 +169,7 @@ func runAnalyze(cmd *cobra.Command, opts *analyzeOptions) error {
 			fmt.Fprintf(cmd.ErrOrStderr(), "warning: stopping Elasticsearch container: %v\n", err)
 		}
 	}()
-	fmt.Fprintf(cmd.ErrOrStderr(), "Elasticsearch ready at %s (data stream %s)\n", cluster.URL, analyze.DefaultPrometheusDataStream)
+	fmt.Fprintf(cmd.ErrOrStderr(), "Elasticsearch ready at %s\n", cluster.URL)
 
 	client, err := analyze.NewClient(analyze.ClientConfig{
 		BaseURL:   cluster.URL,
@@ -175,16 +188,14 @@ func runAnalyze(cmd *cobra.Command, opts *analyzeOptions) error {
 	tracker.Start()
 	defer tracker.Stop()
 
-	if err := analyze.StreamAnalyze(ctx, opts.input, analyze.StreamOptions{
+	analyzeErr := analyze.StreamAnalyze(ctx, opts.input, analyze.StreamOptions{
 		Client:      client,
 		Concurrency: opts.concurrency,
 		Report:      report,
 		OnQuery: func() {
 			tracker.AddQuery()
 		},
-	}); err != nil {
-		return err
-	}
+	})
 
 	var out *os.File
 	if opts.output == "-" {
@@ -192,18 +203,26 @@ func runAnalyze(cmd *cobra.Command, opts *analyzeOptions) error {
 	} else {
 		out, err = os.Create(opts.output)
 		if err != nil {
+			if analyzeErr != nil {
+				return fmt.Errorf("%w (also failed to create report: %v)", analyzeErr, err)
+			}
 			return err
 		}
 		defer out.Close()
 	}
 
 	if err := report.WriteMarkdown(out); err != nil {
+		if analyzeErr != nil {
+			return fmt.Errorf("%w (also failed to write report: %v)", analyzeErr, err)
+		}
 		return err
 	}
 
 	successful := report.SuccessfulQueries()
 	total := report.TotalQueries()
-	fmt.Fprintf(cmd.ErrOrStderr(), "%d/%d queries supported by Elasticsearch (%.1f%%)\n",
-		successful, total, float64(successful)*100/float64(total))
-	return nil
+	if total > 0 {
+		fmt.Fprintf(cmd.ErrOrStderr(), "%d/%d queries supported by Elasticsearch (%.1f%%)\n",
+			successful, total, float64(successful)*100/float64(total))
+	}
+	return analyzeErr
 }

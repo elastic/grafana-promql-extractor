@@ -20,10 +20,6 @@ const (
 	esStartupTimeout = 3 * time.Minute
 	esImagePrefix    = "docker.elastic.co/elasticsearch/elasticsearch:"
 
-	// DefaultPrometheusDataStream is the Prometheus data stream queries run
-	// against through metrics-*.
-	DefaultPrometheusDataStream = "metrics-generic.prometheus-default"
-
 	prometheusIndexTemplate = "metrics-prometheus@template"
 )
 
@@ -120,7 +116,7 @@ func StartElasticsearch(ctx context.Context, image string) (*Cluster, error) {
 
 	queryStart, queryEnd := queryWindow(time.Now().UTC())
 
-	if err := waitForPromQL(ctx, baseURL, DefaultPrometheusDataStream, queryStart, queryEnd); err != nil {
+	if err := waitForPromQL(ctx, baseURL, queryStart, queryEnd); err != nil {
 		_ = closeFn(context.Background())
 		return nil, fmt.Errorf("Elasticsearch %s started but PromQL endpoint is not ready: %w", image, err)
 	}
@@ -226,7 +222,7 @@ func requireDocker(ctx context.Context) error {
 	return nil
 }
 
-func waitForPromQL(ctx context.Context, baseURL, index string, start, end time.Time) error {
+func waitForPromQL(ctx context.Context, baseURL string, start, end time.Time) error {
 	client := &http.Client{Timeout: 10 * time.Second}
 	return pollUntil(ctx, esStartupTimeout, func(ctx context.Context) (bool, error) {
 		params := url.Values{}
@@ -234,7 +230,9 @@ func waitForPromQL(ctx context.Context, baseURL, index string, start, end time.T
 		params.Set("start", start.Format(time.RFC3339))
 		params.Set("end", end.Format(time.RFC3339))
 		params.Set("step", defaultStep)
-		endpoint := strings.TrimRight(baseURL, "/") + "/_prometheus/" + index + "/api/v1/query_range?" + params.Encode()
+		// Same path the Client uses: no data-stream segment, so readiness does
+		// not depend on remote-write having created metrics-generic.*.
+		endpoint := strings.TrimRight(baseURL, "/") + "/_prometheus/api/v1/query_range?" + params.Encode()
 
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 		if err != nil {
