@@ -56,7 +56,7 @@ func PopulateIndex(ctx context.Context, baseURL string, series []SeriesSpec, see
 
 func remoteWriteLabels(spec SeriesSpec) []*remotewritev1.Label {
 	labels := make([]*remotewritev1.Label, 0, 1+len(spec.Labels))
-	labels = append(labels, &remotewritev1.Label{Name: "__name__", Value: spec.Metric})
+	labels = append(labels, &remotewritev1.Label{Name: metricLabel, Value: spec.Metric})
 	for k, v := range spec.Labels {
 		labels = append(labels, &remotewritev1.Label{Name: k, Value: v})
 	}

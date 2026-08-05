@@ -7,6 +7,11 @@ import (
 	"github.com/VictoriaMetrics/metricsql"
 )
 
+const (
+	bootstrapLabel = "bootstrap"
+	metricLabel    = "__name__"
+)
+
 // SeriesSpec is one time series to seed through remote write.
 type SeriesSpec struct {
 	Metric string
@@ -23,6 +28,7 @@ type seriesKey struct {
 type SeriesCollector struct {
 	byKey        map[seriesKey]SeriesSpec
 	globalLabels map[string]struct{}
+	parseSkipped int
 }
 
 // NewSeriesCollector returns an empty collector.
@@ -33,32 +39,30 @@ func NewSeriesCollector() *SeriesCollector {
 	}
 }
 
-// AddQuery extracts metric and label references from one query.
+// AddQuery extracts metric and label references from one query. Queries that
+// fail to parse after scrubbing are skipped; ParseSkipped counts them.
 func (c *SeriesCollector) AddQuery(query string) {
 	scrubbed := ScrubQuery(query)
 	expr, err := metricsql.Parse(scrubbed)
 	if err != nil {
+		c.parseSkipped++
 		return
 	}
 	rc := &refCollector{series: c.byKey, globalLabels: c.globalLabels}
 	rc.walk(expr)
 }
 
-// Series returns the deduplicated series list, with global grouping labels
-// filled in as bootstrap placeholders.
-func (c *SeriesCollector) Series() []SeriesSpec {
-	for key, spec := range c.byKey {
-		for label := range c.globalLabels {
-			if _, ok := spec.Labels[label]; !ok {
-				spec.Labels[label] = "bootstrap"
-			}
-		}
-		c.byKey[key] = spec
-	}
+// ParseSkipped returns how many AddQuery calls could not be parsed.
+func (c *SeriesCollector) ParseSkipped() int {
+	return c.parseSkipped
+}
 
+// Series returns the deduplicated series list, with global grouping labels
+// filled in as bootstrap placeholders. It does not mutate collected state.
+func (c *SeriesCollector) Series() []SeriesSpec {
 	out := make([]SeriesSpec, 0, len(c.byKey))
 	for _, spec := range c.byKey {
-		out = append(out, spec)
+		out = append(out, materializeSeries(spec, c.globalLabels))
 	}
 	return out
 }
@@ -113,7 +117,7 @@ func (c *refCollector) walk(e metricsql.Expr) {
 }
 
 func (c *refCollector) noteLabel(label string) {
-	if label == "" || label == "__name__" {
+	if label == "" || label == metricLabel {
 		return
 	}
 	c.globalLabels[label] = struct{}{}
@@ -121,39 +125,40 @@ func (c *refCollector) noteLabel(label string) {
 
 func (c *refCollector) collectMetric(me *metricsql.MetricExpr) {
 	name := metricName(me)
+	if name == "" {
+		return
+	}
 	labels := map[string]string{}
 	for _, group := range me.LabelFilterss {
 		for _, lf := range group {
-			if lf.Label == "" {
+			if lf.Label == "" || lf.Label == metricLabel {
 				continue
 			}
-			if lf.Label == "__name__" {
-				if name == "" && !lf.IsRegexp && !lf.IsNegative {
-					name = lf.Value
-				}
-				continue
-			}
-			// Equality keeps the concrete value; regexp and negative matchers
-			// still need the label name in the mapping.
 			if lf.IsRegexp || lf.IsNegative {
-				if _, ok := labels[lf.Label]; !ok {
-					labels[lf.Label] = "bootstrap"
-				}
+				setBootstrapIfAbsent(labels, lf.Label)
 				continue
 			}
 			labels[lf.Label] = lf.Value
 		}
 	}
-	if name == "" {
-		return
-	}
 	c.add(name, labels)
 }
 
-func (c *refCollector) add(metric string, labels map[string]string) {
-	if labels == nil {
-		labels = map[string]string{}
+func setBootstrapIfAbsent(labels map[string]string, name string) {
+	if _, ok := labels[name]; !ok {
+		labels[name] = bootstrapLabel
 	}
+}
+
+func materializeSeries(spec SeriesSpec, globalLabels map[string]struct{}) SeriesSpec {
+	labels := copyLabels(spec.Labels)
+	for label := range globalLabels {
+		setBootstrapIfAbsent(labels, label)
+	}
+	return SeriesSpec{Metric: spec.Metric, Labels: labels}
+}
+
+func (c *refCollector) add(metric string, labels map[string]string) {
 	key := seriesKey{metric: metric, labels: labelKey(labels)}
 	spec, ok := c.series[key]
 	if !ok {
@@ -172,9 +177,20 @@ func metricName(me *metricsql.MetricExpr) string {
 	b := me.AppendString(nil)
 	s := strings.TrimSpace(string(b))
 	if i := strings.IndexByte(s, '{'); i >= 0 {
-		return strings.TrimSpace(s[:i])
+		if name := strings.TrimSpace(s[:i]); name != "" {
+			return name
+		}
+	} else if s != "" {
+		return s
 	}
-	return s
+	for _, group := range me.LabelFilterss {
+		for _, lf := range group {
+			if lf.Label == metricLabel && !lf.IsRegexp && !lf.IsNegative {
+				return lf.Value
+			}
+		}
+	}
+	return ""
 }
 
 func labelKey(labels map[string]string) string {

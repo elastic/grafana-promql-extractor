@@ -1,10 +1,30 @@
 package analyze_test
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/elastic/grafana-promql-extractor/internal/analyze"
 )
+
+const bootstrapLabel = "bootstrap"
+
+func wantBootstrap(t *testing.T, labels map[string]string, keys ...string) {
+	t.Helper()
+	for _, k := range keys {
+		if labels[k] != bootstrapLabel {
+			t.Fatalf("labels[%q] = %q, want %q (full: %#v)", k, labels[k], bootstrapLabel, labels)
+		}
+	}
+}
+
+func seriesByMetric(series []analyze.SeriesSpec) map[string]analyze.SeriesSpec {
+	byMetric := make(map[string]analyze.SeriesSpec, len(series))
+	for _, s := range series {
+		byMetric[s.Metric] = s
+	}
+	return byMetric
+}
 
 func TestSeriesCollector(t *testing.T) {
 	c := analyze.NewSeriesCollector()
@@ -17,48 +37,76 @@ func TestSeriesCollector(t *testing.T) {
 	} {
 		c.AddQuery(query)
 	}
+	if c.ParseSkipped() != 0 {
+		t.Fatalf("ParseSkipped() = %d, want 0", c.ParseSkipped())
+	}
+
 	series := c.Series()
-	if len(series) < 2 {
-		t.Fatalf("got %d series, want at least 2: %+v", len(series), series)
+	if len(series) != 6 {
+		t.Fatalf("got %d series, want 6: %+v", len(series), series)
+	}
+	if again := c.Series(); !reflect.DeepEqual(seriesByMetric(series), seriesByMetric(again)) {
+		t.Fatalf("Series() not idempotent:\nfirst  = %+v\nsecond = %+v", series, again)
 	}
 
-	byMetric := map[string]analyze.SeriesSpec{}
-	for _, s := range series {
-		byMetric[s.Metric] = s
+	byMetric := seriesByMetric(series)
+	tests := []struct {
+		metric    string
+		labels    map[string]string
+		bootstrap []string
+	}{
+		{
+			metric:    "http_requests_total",
+			labels:    map[string]string{"job": "api"},
+			bootstrap: []string{"cluster", "instance", "role"},
+		},
+		{
+			metric:    "node_cpu_seconds_total",
+			labels:    map[string]string{"instance": "localhost"},
+			bootstrap: []string{"cluster", "role"},
+		},
+		{
+			metric:    "foo",
+			bootstrap: []string{"cluster", "instance", "role"},
+		},
+		{
+			metric:    "bar",
+			bootstrap: []string{"cluster", "instance", "role"},
+		},
+		{
+			metric:    "disk_usage_bytes",
+			bootstrap: []string{"cluster", "device", "fstype", "instance", "role"},
+		},
+		{
+			metric:    "up",
+			bootstrap: []string{"cluster", "instance", "job", "role"},
+		},
 	}
-	http, ok := byMetric["http_requests_total"]
-	if !ok {
-		t.Fatalf("missing http_requests_total in %+v", byMetric)
+	for _, tc := range tests {
+		t.Run(tc.metric, func(t *testing.T) {
+			spec, ok := byMetric[tc.metric]
+			if !ok {
+				t.Fatalf("missing %q in %+v", tc.metric, byMetric)
+			}
+			for k, want := range tc.labels {
+				if got := spec.Labels[k]; got != want {
+					t.Fatalf("labels[%q] = %q, want %q (full: %#v)", k, got, want, spec.Labels)
+				}
+			}
+			wantBootstrap(t, spec.Labels, tc.bootstrap...)
+		})
 	}
-	if http.Labels["job"] != "api" {
-		t.Fatalf("labels = %#v", http.Labels)
-	}
-	if http.Labels["cluster"] != "bootstrap" {
-		t.Fatalf("expected by() label cluster, got %#v", http.Labels)
-	}
-	if http.Labels["instance"] != "bootstrap" {
-		t.Fatalf("expected on() label instance, got %#v", http.Labels)
-	}
-	if http.Labels["role"] != "bootstrap" {
-		t.Fatalf("expected group_left() label role, got %#v", http.Labels)
-	}
+}
 
-	disk, ok := byMetric["disk_usage_bytes"]
-	if !ok {
-		t.Fatalf("missing disk_usage_bytes in %+v", byMetric)
+func TestSeriesCollectorParseSkipped(t *testing.T) {
+	c := analyze.NewSeriesCollector()
+	c.AddQuery(`up`)
+	c.AddQuery(`{`)
+	if c.ParseSkipped() != 1 {
+		t.Fatalf("ParseSkipped() = %d, want 1", c.ParseSkipped())
 	}
-	if disk.Labels["device"] != "bootstrap" {
-		t.Fatalf("expected regexp label device, got %#v", disk.Labels)
-	}
-	if disk.Labels["fstype"] != "bootstrap" {
-		t.Fatalf("expected negative label fstype, got %#v", disk.Labels)
-	}
-
-	up, ok := byMetric["up"]
-	if !ok {
-		t.Fatalf("missing up in %+v", byMetric)
-	}
-	if up.Labels["job"] != "bootstrap" {
-		t.Fatalf("expected regexp job on __name__ selector, got %#v", up.Labels)
+	series := c.Series()
+	if len(series) != 1 || series[0].Metric != "up" {
+		t.Fatalf("Series() = %+v, want one series up", series)
 	}
 }

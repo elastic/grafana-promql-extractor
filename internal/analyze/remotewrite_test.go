@@ -13,17 +13,17 @@ func TestRemoteWriteLabelsSorted(t *testing.T) {
 		{
 			name:   "lowercase labels",
 			spec:   SeriesSpec{Metric: "http_requests_total", Labels: map[string]string{"cluster": "bootstrap", "job": "api"}},
-			labels: []string{"__name__", "cluster", "job"},
+			labels: []string{metricLabel, "cluster", "job"},
 		},
 		{
 			name:   "uppercase grouping label",
 			spec:   SeriesSpec{Metric: "requests_total", Labels: map[string]string{"Cluster": "bootstrap"}},
-			labels: []string{"Cluster", "__name__"},
+			labels: []string{"Cluster", metricLabel},
 		},
 		{
 			name:   "digit-prefixed label",
 			spec:   SeriesSpec{Metric: "metric", Labels: map[string]string{"2xx": "bootstrap"}},
-			labels: []string{"2xx", "__name__"},
+			labels: []string{"2xx", metricLabel},
 		},
 	}
 	for _, tc := range tests {

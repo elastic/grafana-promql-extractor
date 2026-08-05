@@ -160,6 +160,9 @@ func runAnalyze(cmd *cobra.Command, opts *analyzeOptions) error {
 	if queryCount == 0 {
 		return fmt.Errorf("%s contains no queries", opts.input)
 	}
+	if skipped := collector.ParseSkipped(); skipped > 0 {
+		fmt.Fprintf(cmd.ErrOrStderr(), "warning: skipped %d unparseable queries when collecting series for seeding\n", skipped)
+	}
 
 	fmt.Fprintf(cmd.ErrOrStderr(), "starting Elasticsearch %s in Docker...\n", image)
 	cluster, err := analyze.StartElasticsearch(ctx, image, collector.Series())
