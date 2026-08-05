@@ -31,7 +31,7 @@ The binary is statically linked with no runtime dependencies.
 export GRAFANA_URL=https://grafana.example.com
 export GRAFANA_TOKEN=glsa_xxxxxxxx
 
-grafana-promql-extractor
+grafana-promql-extractor extract
 ```
 
 That writes `promql-queries.txt.gz` and reports progress on stderr:
@@ -53,13 +53,13 @@ those are worth preferring so credentials do not end up in your shell history.
 
 ```bash
 # A sample of 500 dashboards, uncompressed
-grafana-promql-extractor --max-dashboards 500 --compress=false -o sample.txt
+grafana-promql-extractor extract --max-dashboards 500 --compress=false -o sample.txt
 
 # Split a large instance into files of 10k dashboards each
-grafana-promql-extractor --dashboards-per-file 10000
+grafana-promql-extractor extract --dashboards-per-file 10000
 
 # Basic auth instead of a service account token, restricted to one folder
-grafana-promql-extractor --user admin --password secret --folder-uid abc123
+grafana-promql-extractor extract --user admin --password secret --folder-uid abc123
 ```
 
 ### Resuming an interrupted run
@@ -68,7 +68,7 @@ An interrupted run reports the page it stopped on. Resume it without losing what
 already written by combining `--start-page` with `--append`:
 
 ```bash
-grafana-promql-extractor --start-page 7 --append
+grafana-promql-extractor extract --start-page 7 --append
 ```
 
 With `--dashboards-per-file`, the resumed run continues the numbering rather than reopening
@@ -115,7 +115,7 @@ Queries name what an organization runs. `--anonymize` replaces every identifier 
 pseudonym, so the output can be handed to someone outside it:
 
 ```bash
-grafana-promql-extractor --anonymize -o shareable.txt
+grafana-promql-extractor extract --anonymize -o shareable.txt
 ```
 
 ```
@@ -136,7 +136,7 @@ means two runs produce unrelated pseudonyms. To compare runs, or to resume one w
 
 ```bash
 export GRAFANA_ANONYMIZE_SALT=$(openssl rand -hex 32)
-grafana-promql-extractor --anonymize
+grafana-promql-extractor extract --anonymize
 ```
 
 Two caveats worth knowing before sharing. Anything the tool cannot recognize as PromQL is

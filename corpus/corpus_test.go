@@ -144,7 +144,7 @@ func extractAll(t *testing.T, opts Options, dashboards []Dashboard, name string,
 	var stderr bytes.Buffer
 	cmd.SetOut(&stderr)
 	cmd.SetErr(&stderr)
-	cmd.SetArgs(append([]string{
+	cmd.SetArgs(append([]string{"extract",
 		"--url", fake.URL,
 		"-o", out,
 		"--compress=false",
