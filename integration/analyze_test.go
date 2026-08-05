@@ -14,6 +14,39 @@ import (
 	"github.com/elastic/grafana-promql-extractor/internal/cli"
 )
 
+func TestAnalyzeCLISeedsMetrics(t *testing.T) {
+	requireDocker(t)
+
+	dir := t.TempDir()
+	input := filepath.Join(dir, "queries.txt")
+	output := filepath.Join(dir, "report.md")
+	if err := os.WriteFile(input, []byte("d1;http_requests_total{job=\"api\"}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := cli.NewRootCmd()
+	var stderr bytes.Buffer
+	cmd.SetOut(&stderr)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{
+		"analyze",
+		"-i", input,
+		"-o", output,
+		"--es-image", esImage(t),
+		"--progress", "never",
+	})
+	if err := cmd.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("analyze failed: %v\n%s", err, stderr.String())
+	}
+
+	if !strings.Contains(stderr.String(), "seeded") {
+		t.Fatalf("missing remote-write seed message:\n%s", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "1/1 queries supported by Elasticsearch") {
+		t.Fatalf("missing stderr summary:\n%s", stderr.String())
+	}
+}
+
 func TestAnalyzeCLI(t *testing.T) {
 	requireDocker(t)
 

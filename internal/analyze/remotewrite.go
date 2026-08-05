@@ -54,21 +54,23 @@ func PopulateIndex(ctx context.Context, baseURL string, series []SeriesSpec, see
 	return len(series), nil
 }
 
+func remoteWriteLabels(spec SeriesSpec) []*remotewritev1.Label {
+	labels := make([]*remotewritev1.Label, 0, 1+len(spec.Labels))
+	labels = append(labels, &remotewritev1.Label{Name: "__name__", Value: spec.Metric})
+	for k, v := range spec.Labels {
+		labels = append(labels, &remotewritev1.Label{Name: k, Value: v})
+	}
+	slices.SortFunc(labels, func(a, b *remotewritev1.Label) int {
+		return strings.Compare(a.Name, b.Name)
+	})
+	return labels
+}
+
 func remoteWrite(ctx context.Context, client *http.Client, baseURL string, series []SeriesSpec, timestampMs int64) error {
 	ts := make([]*remotewritev1.TimeSeries, 0, len(series))
 	for _, spec := range series {
-		labels := make([]*remotewritev1.Label, 0, 1+len(spec.Labels))
-		labels = append(labels, &remotewritev1.Label{Name: "__name__", Value: spec.Metric})
-		keys := make([]string, 0, len(spec.Labels))
-		for k := range spec.Labels {
-			keys = append(keys, k)
-		}
-		slices.Sort(keys)
-		for _, k := range keys {
-			labels = append(labels, &remotewritev1.Label{Name: k, Value: spec.Labels[k]})
-		}
 		ts = append(ts, &remotewritev1.TimeSeries{
-			Labels: labels,
+			Labels: remoteWriteLabels(spec),
 			Samples: []*remotewritev1.Sample{{
 				Value:     1.0,
 				Timestamp: timestampMs,
@@ -88,6 +90,7 @@ func remoteWrite(ctx context.Context, client *http.Client, baseURL string, serie
 	}
 	req.Header.Set("Content-Type", "application/x-protobuf")
 	req.Header.Set("Content-Encoding", "snappy")
+	req.Header.Set("X-Prometheus-Remote-Write-Version", "0.1.0")
 
 	resp, err := client.Do(req)
 	if err != nil {
