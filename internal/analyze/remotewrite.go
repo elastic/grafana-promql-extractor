@@ -98,8 +98,31 @@ func remoteWrite(ctx context.Context, client *http.Client, baseURL string, serie
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("remote write HTTP %d: %s", resp.StatusCode, ExtractErrorMessage(string(body)))
+	return remoteWriteResult(resp.StatusCode, string(body))
+}
+
+func remoteWriteResult(status int, body string) error {
+	if status == http.StatusNoContent || status == http.StatusOK {
+		return nil
 	}
-	return nil
+	msg := ExtractErrorMessage(body)
+	// Elasticsearch can reject duplicate samples in the same batch with CONFLICT
+	// after the first copy is indexed. That still leaves one sample per series,
+	// which is enough for label mapping during coverage checks.
+	if status == http.StatusBadRequest && strings.Contains(msg, "partially failed") {
+		return nil
+	}
+	return fmt.Errorf("remote write HTTP %d: %s", status, msg)
+}
+
+// remoteWriteSeriesKey is the identity Elasticsearch uses for a seeded series.
+func remoteWriteSeriesKey(spec SeriesSpec) string {
+	var b strings.Builder
+	for _, label := range remoteWriteLabels(spec) {
+		b.WriteString(label.Name)
+		b.WriteByte('=')
+		b.WriteString(label.Value)
+		b.WriteByte('|')
+	}
+	return b.String()
 }
