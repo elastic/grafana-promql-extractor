@@ -148,8 +148,9 @@ logs real dashboard UIDs for failures.
 ## Checking Elasticsearch support
 
 After extraction, `analyze` starts Elasticsearch in Docker (Docker must be
-running), sends each query to the Prometheus-compatible `query_range` endpoint,
-and reports which expressions the release accepts.
+running), seeds referenced metrics through remote write, sends each query to
+the Prometheus-compatible `query_range` endpoint, and reports which expressions
+the release accepts.
 
 ```bash
 grafana-promql-extractor extract --anonymize -o shareable.txt.gz

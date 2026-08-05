@@ -4,10 +4,12 @@ go 1.26.2
 
 require (
 	github.com/VictoriaMetrics/metricsql v0.87.3
+	github.com/golang/snappy v1.0.0
 	github.com/spf13/cobra v1.10.2
 	github.com/testcontainers/testcontainers-go v0.43.0
 	golang.org/x/sync v0.22.0
 	golang.org/x/term v0.45.0
+	google.golang.org/protobuf v1.34.2
 )
 
 require (

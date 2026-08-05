@@ -21,6 +21,10 @@ const (
 	esStartupTimeout = 3 * time.Minute
 	esImagePrefix    = "docker.elastic.co/elasticsearch/elasticsearch:"
 
+	// DefaultPrometheusDataStream is the Prometheus data stream remote write
+	// creates. Query readiness and checks use the plain /_prometheus endpoint.
+	DefaultPrometheusDataStream = "metrics-generic.prometheus-default"
+
 	prometheusIndexTemplate = "metrics-prometheus@template"
 )
 
@@ -33,10 +37,12 @@ func queryWindow(seed time.Time) (start, end time.Time) {
 // Cluster is a running Elasticsearch instance, usually in Docker.
 type Cluster struct {
 	URL string
-	// QueryStart and QueryEnd are the fixed query_range bounds passed to each
-	// PromQL check.
+	// QueryStart and QueryEnd are the fixed query_range bounds shared with
+	// remote-write seeding so every check sees the seeded samples.
 	QueryStart time.Time
 	QueryEnd   time.Time
+	// SeededSeries is how many time series remote write populated before checks.
+	SeededSeries int
 	// Close stops the underlying container. It is safe to call more than once.
 	Close func(context.Context) error
 }
@@ -80,9 +86,10 @@ func isFullESVersion(version string) bool {
 	return true
 }
 
-// StartElasticsearch boots a single-node Elasticsearch container from image
-// and waits until PromQL accepts requests.
-func StartElasticsearch(ctx context.Context, image string) (*Cluster, error) {
+// StartElasticsearch boots a single-node Elasticsearch container from image,
+// seeds referenced metrics with remote write when series are provided, and
+// waits until PromQL accepts requests.
+func StartElasticsearch(ctx context.Context, image string, series []SeriesSpec) (*Cluster, error) {
 	if err := requireDocker(ctx); err != nil {
 		return nil, err
 	}
@@ -142,7 +149,18 @@ func StartElasticsearch(ctx context.Context, image string) (*Cluster, error) {
 		return nil, fmt.Errorf("waiting for %s: %w", prometheusIndexTemplate, err)
 	}
 
-	queryStart, queryEnd := queryWindow(time.Now().UTC())
+	seedTime := time.Now().UTC()
+	queryStart, queryEnd := queryWindow(seedTime)
+
+	seededSeries := 0
+	if len(series) > 0 {
+		var err error
+		seededSeries, err = PopulateIndex(ctx, baseURL, series, seedTime)
+		if err != nil {
+			_ = closeFn(context.Background())
+			return nil, fmt.Errorf("populating prometheus index: %w", err)
+		}
+	}
 
 	if err := waitForPromQL(ctx, baseURL, queryStart, queryEnd); err != nil {
 		_ = closeFn(context.Background())
@@ -150,10 +168,11 @@ func StartElasticsearch(ctx context.Context, image string) (*Cluster, error) {
 	}
 
 	return &Cluster{
-		URL:        baseURL,
-		QueryStart: queryStart,
-		QueryEnd:   queryEnd,
-		Close:      closeFn,
+		URL:          baseURL,
+		QueryStart:   queryStart,
+		QueryEnd:     queryEnd,
+		SeededSeries: seededSeries,
+		Close:        closeFn,
 	}, nil
 }
 
