@@ -23,7 +23,8 @@ or build from source:
 go install github.com/elastic/grafana-promql-extractor@latest
 ```
 
-The binary is statically linked with no runtime dependencies.
+The binary is statically linked. `extract` has no runtime dependencies;
+`analyze` needs a local Docker daemon to start Elasticsearch.
 
 ## Usage
 
@@ -144,6 +145,27 @@ pseudonymized rather than kept, so a query in a dialect such as MetricsQL loses 
 of its syntax that Prometheus does not have. And stderr is not anonymized: `--verbose`
 logs real dashboard UIDs for failures.
 
+## Checking Elasticsearch support
+
+After extraction, `analyze` starts Elasticsearch in Docker (Docker must be
+running), sends each query to the Prometheus-compatible `query_range` endpoint,
+and reports which expressions the release accepts.
+
+```bash
+grafana-promql-extractor extract --anonymize -o shareable.txt.gz
+grafana-promql-extractor analyze -i shareable.txt.gz -o coverage.md --es-version 9.5.0
+```
+
+Point `--es-version` at any release that ships the PromQL HTTP API (9.4 preview,
+9.5 and later), or `--es-image` at a full container image when you need a
+snapshot build. The two are mutually exclusive; `ES_VERSION` and `ES_IMAGE` are
+the same flags via environment variables. An explicit flag wins over the other
+variable when both would otherwise apply.
+
+The report is markdown with a summary table and error groups. Grafana template
+variables are scrubbed before each request, the same way the Elasticsearch
+PromqlCoverageAnalyzer does.
+
 ## Development
 
 ```bash
@@ -163,6 +185,7 @@ How it works is documented next to the code it describes:
 go doc ./internal/cli      # the pipeline, memory and throughput, the batched listing
 go doc ./internal/extract  # how a target's datasource decides whether it is PromQL
 go doc ./internal/anonymize
+go doc ./internal/analyze  # checking queries against Elasticsearch PromQL
 ```
 
 ## License

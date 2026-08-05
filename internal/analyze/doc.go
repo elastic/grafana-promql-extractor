@@ -12,10 +12,19 @@
 //
 // # Streaming
 //
-// A run scans the export twice without loading every query into memory. The first
-// pass collects referenced metrics for remote-write seeding; the second checks
-// each query and feeds a running report that only retains aggregated counts and
-// error groups.
+// A run scans the export once without loading every query into memory, checking
+// each query and feeding a running report that only retains aggregated counts
+// and error groups.
+//
+// # Docker
+//
+// --es-version or --es-image starts a single-node Elasticsearch container with
+// testcontainers, waits until the PromQL query_range endpoint accepts requests,
+// runs the analysis, and stops the container when the command exits. The two
+// flags are mutually exclusive: --es-version takes a full version such as 9.5.0
+// and resolves to docker.elastic.co/elasticsearch/elasticsearch:<version>, while
+// --es-image takes a full image reference. PromQL requires Elasticsearch 9.4 or
+// later.
 //
 // # Grafana variables
 //

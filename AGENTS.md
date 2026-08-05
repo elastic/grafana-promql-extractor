@@ -23,7 +23,7 @@ rather than explain it twice.
 | Command | Needs | When |
 | --- | --- | --- |
 | `make test`, `make test-race` | nothing | every change |
-| `make test-integration` | Docker | changes to the Grafana client, search paging or datasource resolution |
+| `make test-integration` | Docker | changes to the Grafana client, search paging, datasource resolution, or analyze against Elasticsearch (CI splits Grafana and analyze so the ES container is not started once per Grafana version) |
 | `make test-versions` | Docker and a warm corpus cache | changes to how dashboards are read or stored |
 | `make test-scale` | a minute | changes to the pipeline or the writer |
 | `make test-corpus` | grafana.com, once | changes to extraction or anonymization |
@@ -33,7 +33,11 @@ rather than explain it twice.
 
 **Integration tests** (`integration` build tag) start Grafana with testcontainers and skip
 themselves when Docker is not running. Point them at another release with
-`make test-integration GRAFANA_IMAGE=grafana/grafana:11.6.6`.
+`make test-integration GRAFANA_IMAGE=grafana/grafana:11.6.6`. The analyze test starts
+Elasticsearch in Docker; override with `ES_VERSION` (resolved tag) or `ES_IMAGE`
+(full image reference). Locally `make test-integration` runs both; CI runs Grafana
+matrix jobs with `-skip '^TestAnalyze'` and a separate analyze job with
+`-run '^TestAnalyze'`.
 
 **Corpus tests** (`corpus` build tag) check the extractor and `--anonymize` against the 1000
 most downloaded dashboards on grafana.com. The dashboards are downloaded once into
