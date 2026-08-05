@@ -148,8 +148,10 @@ func runAnalyze(cmd *cobra.Command, opts *analyzeOptions) error {
 		return err
 	}
 
+	collector := analyze.NewSeriesCollector()
 	queryCount := 0
-	if err := analyze.ScanExport(opts.input, func(analyze.Entry) error {
+	if err := analyze.ScanExport(opts.input, func(e analyze.Entry) error {
+		collector.AddQuery(e.Query)
 		queryCount++
 		return nil
 	}); err != nil {
@@ -158,9 +160,12 @@ func runAnalyze(cmd *cobra.Command, opts *analyzeOptions) error {
 	if queryCount == 0 {
 		return fmt.Errorf("%s contains no queries", opts.input)
 	}
+	if skipped := collector.ParseSkipped(); skipped > 0 {
+		fmt.Fprintf(cmd.ErrOrStderr(), "warning: skipped %d unparseable queries when collecting series for seeding\n", skipped)
+	}
 
 	fmt.Fprintf(cmd.ErrOrStderr(), "starting Elasticsearch %s in Docker...\n", image)
-	cluster, err := analyze.StartElasticsearch(ctx, image)
+	cluster, err := analyze.StartElasticsearch(ctx, image, collector.Series())
 	if err != nil {
 		return err
 	}
@@ -169,7 +174,10 @@ func runAnalyze(cmd *cobra.Command, opts *analyzeOptions) error {
 			fmt.Fprintf(cmd.ErrOrStderr(), "warning: stopping Elasticsearch container: %v\n", err)
 		}
 	}()
-	fmt.Fprintf(cmd.ErrOrStderr(), "Elasticsearch ready at %s\n", cluster.URL)
+	if cluster.SeededSeries > 0 {
+		fmt.Fprintf(cmd.ErrOrStderr(), "seeded %d time series via remote write\n", cluster.SeededSeries)
+	}
+	fmt.Fprintf(cmd.ErrOrStderr(), "Elasticsearch ready at %s (data stream %s)\n", cluster.URL, analyze.DefaultPrometheusDataStream)
 
 	client, err := analyze.NewClient(analyze.ClientConfig{
 		BaseURL:   cluster.URL,

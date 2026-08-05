@@ -11,7 +11,7 @@ CORPUS ?= 1000
 # Number of community dashboards each release gets in the cross-version test.
 VERSION_CORPUS ?= 250
 
-.PHONY: help build install test test-race test-integration test-versions test-scale test-corpus test-throughput test-all fmt vet lint snapshot clean clean-corpus
+.PHONY: help build install test test-race test-integration test-versions test-scale test-corpus test-throughput test-all fmt vet lint snapshot clean clean-corpus proto
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -56,6 +56,9 @@ vet: ## Run go vet, including the tagged builds
 	go vet -tags="integration corpus" ./...
 
 lint: fmt vet ## Format and vet
+
+proto: ## Regenerate Go types from proto/remotewrite/v1/types.proto
+	protoc --go_out=. --go_opt=module=github.com/elastic/grafana-promql-extractor proto/remotewrite/v1/types.proto
 
 snapshot: ## Cross compile release artifacts without publishing
 	goreleaser release --snapshot --clean
