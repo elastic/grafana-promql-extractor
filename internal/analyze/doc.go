@@ -7,7 +7,8 @@
 // sent to /_prometheus/api/v1/query_range. A query counts as supported when
 // the endpoint returns Prometheus status success, even if the result is empty.
 // Unsupported constructs return status error with a message that is grouped for
-// the report.
+// the report. Queries are sent with GET; form-encoded POST needs HTTP TLS at
+// the Elasticsearch node, which the Docker analyze path does not use.
 //
 // # Streaming
 //

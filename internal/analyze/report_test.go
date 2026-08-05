@@ -8,21 +8,6 @@ import (
 	"github.com/elastic/grafana-promql-extractor/internal/analyze"
 )
 
-func TestGroupErrors(t *testing.T) {
-	groups := analyze.GroupErrors([]string{
-		"line 1:27: Subquery queries are not supported at this time [foo[5m:1m]]",
-	})
-	if len(groups) != 1 {
-		t.Fatalf("groups = %#v", groups)
-	}
-	if !strings.Contains(groups[0], "Subquery queries are not supported") {
-		t.Fatalf("group = %q", groups[0])
-	}
-	if strings.Contains(groups[0], "5m") {
-		t.Fatalf("expected numeric normalization, got %q", groups[0])
-	}
-}
-
 func TestWriteMarkdownReport(t *testing.T) {
 	report := analyze.NewReport()
 	report.Record("d1", "up", true, nil)

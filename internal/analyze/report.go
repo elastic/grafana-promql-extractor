@@ -27,7 +27,6 @@ type Report struct {
 type dashStats struct {
 	queries  int
 	failures int
-	groups   map[string]struct{}
 }
 
 // NewReport returns an empty report.
@@ -53,7 +52,7 @@ func (r *Report) Record(dashboardUID, query string, success bool, errorGroups []
 
 	ds := r.dashboards[dashboardUID]
 	if ds == nil {
-		ds = &dashStats{groups: make(map[string]struct{})}
+		ds = &dashStats{}
 		r.dashboards[dashboardUID] = ds
 	}
 	ds.queries++
@@ -74,7 +73,6 @@ func (r *Report) Record(dashboardUID, query string, success bool, errorGroups []
 		if ex, ok := r.groupExample[g]; !ok || len(query) < len(ex) {
 			r.groupExample[g] = query
 		}
-		ds.groups[g] = struct{}{}
 		if r.dashboardGroups[dashboardUID] == nil {
 			r.dashboardGroups[dashboardUID] = make(map[string]struct{})
 		}

@@ -9,9 +9,73 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/elastic/grafana-promql-extractor/internal/analyze"
 )
+
+func TestNewClientRejectsInvalidTimes(t *testing.T) {
+	_, err := analyze.NewClient(analyze.ClientConfig{
+		BaseURL: "http://localhost:9200",
+		Start:   "not-a-time",
+	})
+	if err == nil || !strings.Contains(err.Error(), "invalid start time") {
+		t.Fatalf("err = %v", err)
+	}
+
+	_, err = analyze.NewClient(analyze.ClientConfig{
+		BaseURL: "http://localhost:9200",
+		End:     "also-bad",
+	})
+	if err == nil || !strings.Contains(err.Error(), "invalid end time") {
+		t.Fatalf("err = %v", err)
+	}
+
+	_, err = analyze.NewClient(analyze.ClientConfig{
+		BaseURL: "http://localhost:9200",
+		Start:   "2026-01-02T00:00:00Z",
+		End:     "2026-01-01T00:00:00Z",
+	})
+	if err == nil || !strings.Contains(err.Error(), "must be before") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestClientQueryRangeEndOnlyWindow(t *testing.T) {
+	var gotStart, gotEnd string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("method = %s, want GET", r.Method)
+		}
+		gotStart = r.URL.Query().Get("start")
+		gotEnd = r.URL.Query().Get("end")
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "success"})
+	}))
+	t.Cleanup(srv.Close)
+
+	end := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	client, err := analyze.NewClient(analyze.ClientConfig{
+		BaseURL: srv.URL,
+		End:     end.Format(time.RFC3339),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ok, _, _, err := client.QueryRange(context.Background(), "up")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected success")
+	}
+	if gotEnd != end.Format(time.RFC3339) {
+		t.Fatalf("end = %q, want %q", gotEnd, end.Format(time.RFC3339))
+	}
+	wantStart := end.Add(-5 * time.Minute).Format(time.RFC3339)
+	if gotStart != wantStart {
+		t.Fatalf("start = %q, want %q", gotStart, wantStart)
+	}
+}
 
 func TestClientQueryRangeError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

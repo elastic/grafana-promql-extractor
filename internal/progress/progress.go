@@ -59,10 +59,10 @@ type Tracker struct {
 	unit     string
 
 	// total is fixed at construction; zero means unknown.
-	total      int64
-	dashboards atomic.Int64
-	queries    atomic.Int64
-	failures   atomic.Int64
+	total    int64
+	primary  atomic.Int64
+	queries  atomic.Int64
+	failures atomic.Int64
 
 	start time.Time
 
@@ -168,7 +168,7 @@ func (t *Tracker) Logf(format string, args ...any) {
 
 // AddDashboard records a processed dashboard and the queries it yielded.
 func (t *Tracker) AddDashboard(queries int) {
-	t.dashboards.Add(1)
+	t.primary.Add(1)
 	if queries > 0 {
 		t.queries.Add(int64(queries))
 	}
@@ -176,22 +176,23 @@ func (t *Tracker) AddDashboard(queries int) {
 
 // AddQuery records one processed query when the tracker unit is queries.
 func (t *Tracker) AddQuery() {
-	t.dashboards.Add(1)
+	t.primary.Add(1)
 	t.queries.Add(1)
 }
 
 // AddFailure records a dashboard that could not be processed.
 func (t *Tracker) AddFailure() {
 	t.failures.Add(1)
-	t.dashboards.Add(1)
+	t.primary.Add(1)
 }
 
 // Elapsed returns the time since the tracker was created.
 func (t *Tracker) Elapsed() time.Duration { return time.Since(t.start) }
 
-// Counts returns the current dashboard, query and failure counts.
-func (t *Tracker) Counts() (dashboards, queries, failures int) {
-	return int(t.dashboards.Load()), int(t.queries.Load()), int(t.failures.Load())
+// Counts returns the primary counter (dashboards or queries, depending on the
+// unit), the query counter, and the failure count.
+func (t *Tracker) Counts() (done, queries, failures int) {
+	return int(t.primary.Load()), int(t.queries.Load()), int(t.failures.Load())
 }
 
 func (t *Tracker) render() {
@@ -211,7 +212,7 @@ func (t *Tracker) render() {
 }
 
 func (t *Tracker) line() string {
-	done := t.dashboards.Load()
+	done := t.primary.Load()
 	queries := t.queries.Load()
 	failures := t.failures.Load()
 	total := t.total

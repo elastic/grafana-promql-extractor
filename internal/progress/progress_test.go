@@ -41,9 +41,9 @@ func TestCountsAreAggregated(t *testing.T) {
 	tracker.AddFailure()
 	tracker.Stop()
 
-	dashboards, queries, failures := tracker.Counts()
-	if dashboards != 3 || queries != 3 || failures != 1 {
-		t.Errorf("Counts() = %d/%d/%d, want 3/3/1", dashboards, queries, failures)
+	done, queries, failures := tracker.Counts()
+	if done != 3 || queries != 3 || failures != 1 {
+		t.Errorf("Counts() = %d/%d/%d, want 3/3/1", done, queries, failures)
 	}
 }
 
@@ -94,9 +94,9 @@ func TestConcurrentUpdatesAreSafe(t *testing.T) {
 	wg.Wait()
 	tracker.Stop()
 
-	dashboards, queries, _ := tracker.Counts()
-	if dashboards != 800 || queries != 1600 {
-		t.Errorf("Counts() = %d/%d, want 800/1600", dashboards, queries)
+	done, queries, _ := tracker.Counts()
+	if done != 800 || queries != 1600 {
+		t.Errorf("Counts() = %d/%d, want 800/1600", done, queries)
 	}
 }
 

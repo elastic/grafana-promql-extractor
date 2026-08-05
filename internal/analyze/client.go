@@ -67,6 +67,23 @@ func NewClient(cfg ClientConfig) (*Client, error) {
 	if cfg.Step == "" {
 		cfg.Step = defaultStep
 	}
+	if cfg.Start != "" {
+		if _, err := time.Parse(time.RFC3339, cfg.Start); err != nil {
+			return nil, fmt.Errorf("invalid start time %q: %w", cfg.Start, err)
+		}
+	}
+	if cfg.End != "" {
+		if _, err := time.Parse(time.RFC3339, cfg.End); err != nil {
+			return nil, fmt.Errorf("invalid end time %q: %w", cfg.End, err)
+		}
+	}
+	if cfg.Start != "" && cfg.End != "" {
+		start, _ := time.Parse(time.RFC3339, cfg.Start)
+		end, _ := time.Parse(time.RFC3339, cfg.End)
+		if !start.Before(end) {
+			return nil, fmt.Errorf("start time %q must be before end time %q", cfg.Start, cfg.End)
+		}
+	}
 
 	endpoint := base.ResolveReference(&url.URL{Path: "/_prometheus/api/v1/query_range"}).String()
 
@@ -81,20 +98,20 @@ func NewClient(cfg ClientConfig) (*Client, error) {
 
 // QueryRange executes one PromQL range query. success is true when Elasticsearch
 // returns Prometheus status success.
+//
+// Parameters are sent as a GET query string. Form-encoded POST would avoid URL
+// length limits, but Elasticsearch accepts that only on authenticated HTTPS to
+// a node with HTTP TLS enabled; the Docker analyze path is plain HTTP, so GET
+// is the reliable choice. See
+// https://www.elastic.co/docs/reference/query-languages/promql/promql-limitations#promql-limitations-form-post.
 func (c *Client) QueryRange(ctx context.Context, query string) (success bool, errMsg string, httpStatus int, err error) {
 	end := time.Now().UTC()
-	start := end.Add(-defaultQueryWindow)
 	if c.cfg.End != "" {
-		if parsed, err := time.Parse(time.RFC3339, c.cfg.End); err == nil {
-			end = parsed
-		}
+		end, _ = time.Parse(time.RFC3339, c.cfg.End)
 	}
+	start := end.Add(-defaultQueryWindow)
 	if c.cfg.Start != "" {
-		if parsed, err := time.Parse(time.RFC3339, c.cfg.Start); err == nil {
-			start = parsed
-		}
-	} else if c.cfg.End == "" {
-		start = end.Add(-defaultQueryWindow)
+		start, _ = time.Parse(time.RFC3339, c.cfg.Start)
 	}
 
 	params := url.Values{}
