@@ -15,11 +15,14 @@ var version = "dev"
 func NewRootCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "grafana-promql-extractor",
-		Short: "Extract PromQL queries from Grafana dashboards",
+		Short: "Extract and analyze PromQL queries from Grafana dashboards",
 		Long: strings.TrimSpace(`
-Extract PromQL queries from the dashboards of a Grafana instance.
+Extract PromQL queries from Grafana dashboards, and optionally check them against
+an Elasticsearch PromQL endpoint.
 
-Use the extract subcommand to pull queries into a flat file.`),
+Use the extract subcommand to pull queries from a Grafana instance into a flat
+file. Use analyze to run those queries against Elasticsearch and report which
+expressions the release accepts.`),
 		Version:           version,
 		Args:              cobra.NoArgs,
 		SilenceUsage:      true,
@@ -27,11 +30,12 @@ Use the extract subcommand to pull queries into a flat file.`),
 		DisableAutoGenTag: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			_ = cmd.Help()
-			return errors.New("specify a subcommand: extract")
+			return errors.New("specify a subcommand: extract or analyze")
 		},
 	}
 
 	cmd.AddCommand(newExtractCmd())
+	cmd.AddCommand(newAnalyzeCmd())
 
 	return cmd
 }
