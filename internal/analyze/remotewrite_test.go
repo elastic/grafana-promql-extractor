@@ -1,6 +1,7 @@
 package analyze
 
 import (
+	"net/http"
 	"testing"
 )
 
@@ -43,5 +44,26 @@ func TestRemoteWriteLabelsSorted(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestRemoteWriteResultPartialFailure(t *testing.T) {
+	body := `Prometheus remote write request partially failed: 23 of 500 samples failed. Index [.ds-metrics-generic.prometheus-default] returned status [CONFLICT]`
+	if err := remoteWriteResult(http.StatusBadRequest, body); err != nil {
+		t.Fatalf("partial failure should not abort seeding: %v", err)
+	}
+}
+
+func TestRemoteWriteResultHardFailure(t *testing.T) {
+	if err := remoteWriteResult(http.StatusBadRequest, "invalid protobuf"); err == nil {
+		t.Fatal("expected error for non-partial remote write failure")
+	}
+}
+
+func TestRemoteWriteResultSuccess(t *testing.T) {
+	for _, status := range []int{http.StatusOK, http.StatusNoContent} {
+		if err := remoteWriteResult(status, ""); err != nil {
+			t.Fatalf("status %d: %v", status, err)
+		}
 	}
 }

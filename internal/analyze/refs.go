@@ -58,11 +58,22 @@ func (c *SeriesCollector) ParseSkipped() int {
 }
 
 // Series returns the deduplicated series list, with global grouping labels
-// filled in as bootstrap placeholders. It does not mutate collected state.
+// filled in as bootstrap placeholders. Entries that differ before
+// materialization can collapse to the same remote-write identity once missing
+// labels are filled with bootstrap placeholders; those are merged here so a
+// seed pass does not send duplicate samples in one batch. It does not mutate
+// collected state.
 func (c *SeriesCollector) Series() []SeriesSpec {
+	seen := make(map[string]struct{}, len(c.byKey))
 	out := make([]SeriesSpec, 0, len(c.byKey))
 	for _, spec := range c.byKey {
-		out = append(out, materializeSeries(spec, c.globalLabels))
+		mat := materializeSeries(spec, c.globalLabels)
+		key := remoteWriteSeriesKey(mat)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, mat)
 	}
 	return out
 }

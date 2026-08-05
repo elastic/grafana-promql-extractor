@@ -1,0 +1,17 @@
+gcom-7639;container_memory_working_set_bytes{namespace="kube-system"}
+gcom-7639;container_memory_working_set_bytes{pod="foo"}
+gcom-7639;container_network_receive_bytes_total
+gcom-7639;sum by (namespace, pod, container, cluster, job, instance) (rate(istio_requests_total{reporter=~"source|waypoint"}[5m]))
+gcom-7639;container_memory_working_set_bytes
+gcom-7645;container_memory_working_set_bytes{container="discovery",pod=~"istiod-.*"}
+gcom-7645;container_network_receive_bytes_total
+gcom-7645;sum by (pod, namespace, container, cluster) (container_memory_working_set_bytes)
+gcom-9614;sum(rate(nginx_ingress_controller_requests{controller_pod=~"$controller",namespace=~"$namespace"}[2m]))
+gcom-9614;sum(rate(nginx_ingress_controller_requests{controller_pod=~"$controller",ingress=~"$ingress"}[2m]))
+gcom-9614;sum by (ingress) (rate(nginx_ingress_controller_requests{namespace=~"$namespace"}[2m]))
+gcom-14584;sum(argocd_app_info{namespace=~"$namespace",health_status=~"$health_status"})
+gcom-14584;sum(argocd_app_info{namespace=~"$namespace",dest_server=~"$cluster"})
+gcom-14584;count(count by (repo) (argocd_app_info{namespace=~"$namespace"}))
+gcom-13659;probe_success{job=~"$job", instance=~"$instance"}
+gcom-13659;avg_over_time(probe_duration_seconds{job=~"$job", instance=~"$instance"}[1m])
+gcom-13659;sum(probe_http_duration_seconds{job=~"$job", instance=~"$instance"}) by (instance)
