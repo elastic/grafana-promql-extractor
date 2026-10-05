@@ -15,7 +15,9 @@
 // A run scans the export twice without loading every query into memory. The first
 // pass collects referenced metrics for remote-write seeding; the second checks
 // each query and feeds a running report that only retains aggregated counts and
-// error groups.
+// error groups. With --failed-output, rejected queries are streamed to a second
+// export file as they fail rather than held in memory. That file is truncated
+// when the check pass starts, so a run with no rejections leaves it empty.
 //
 // # Populating the index
 //

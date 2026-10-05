@@ -154,11 +154,15 @@ func TestStreamAnalyze(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	failedPath := filepath.Join(dir, "failed.txt")
+	failed := &analyze.FailedExport{Path: failedPath}
+
 	report := analyze.NewReport()
 	if err := analyze.StreamAnalyze(context.Background(), path, analyze.StreamOptions{
 		Client:      client,
 		Concurrency: 2,
 		Report:      report,
+		Failed:      failed,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -167,5 +171,100 @@ func TestStreamAnalyze(t *testing.T) {
 	}
 	if report.SuccessfulQueries() != 1 {
 		t.Fatalf("successful = %d", report.SuccessfulQueries())
+	}
+	if err := failed.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if failed.Count() != 1 {
+		t.Fatalf("failed count = %d", failed.Count())
+	}
+
+	var failedEntries []analyze.Entry
+	if err := analyze.ScanExport(failedPath, func(e analyze.Entry) error {
+		failedEntries = append(failedEntries, e)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(failedEntries) != 1 {
+		t.Fatalf("failed entries = %d", len(failedEntries))
+	}
+	if failedEntries[0].DashboardUID != "d2" || failedEntries[0].Query != "a unless b" {
+		t.Fatalf("failed entry = %+v", failedEntries[0])
+	}
+}
+
+func TestStreamAnalyzeRejectsFailedOutputSameAsInput(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "queries.txt")
+	content := "d1;up\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	client, err := analyze.NewClient(analyze.ClientConfig{BaseURL: "http://127.0.0.1:1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	failed := &analyze.FailedExport{Path: filepath.Join(dir, ".", "queries.txt")}
+	err = analyze.StreamAnalyze(context.Background(), path, analyze.StreamOptions{
+		Client: client,
+		Report: analyze.NewReport(),
+		Failed: failed,
+	})
+	if err == nil || !strings.Contains(err.Error(), "same as the input") {
+		t.Fatalf("err = %v", err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != content {
+		t.Fatalf("input was modified: %q", got)
+	}
+}
+
+func TestStreamAnalyzeReplacesFailedOutput(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "success"})
+	}))
+	t.Cleanup(srv.Close)
+
+	client, err := analyze.NewClient(analyze.ClientConfig{BaseURL: srv.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "queries.txt")
+	if err := os.WriteFile(path, []byte("d1;up\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	failedPath := filepath.Join(dir, "failed.txt")
+	if err := os.WriteFile(failedPath, []byte("old;a unless b\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	failed := &analyze.FailedExport{Path: failedPath}
+	if err := analyze.StreamAnalyze(context.Background(), path, analyze.StreamOptions{
+		Client: client,
+		Report: analyze.NewReport(),
+		Failed: failed,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := failed.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	var got []analyze.Entry
+	if err := analyze.ScanExport(failedPath, func(e analyze.Entry) error {
+		got = append(got, e)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("entries = %d, want 0 after a clean run", len(got))
 	}
 }
