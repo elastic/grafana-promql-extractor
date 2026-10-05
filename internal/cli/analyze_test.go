@@ -50,3 +50,49 @@ func TestAnalyzeRejectsBothESVersionAndImage(t *testing.T) {
 		t.Fatalf("error = %v", err)
 	}
 }
+
+func TestAnalyzeRejectsFailedOutputSameAsInput(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "queries.txt")
+	if err := os.WriteFile(input, []byte("d1;up\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := cli.NewRootCmd()
+	cmd.SetArgs([]string{
+		"analyze", "-i", input,
+		"--failed-output", filepath.Join(dir, ".", "queries.txt"),
+		"--progress", "never",
+	})
+	err := cmd.ExecuteContext(context.Background())
+	if err == nil {
+		t.Fatal("expected error when --failed-output is the input path")
+	}
+	if !strings.Contains(err.Error(), "--failed-output") || !strings.Contains(err.Error(), "--input") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestAnalyzeRejectsFailedOutputSameAsOutput(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "queries.txt")
+	report := filepath.Join(dir, "report.md")
+	if err := os.WriteFile(input, []byte("d1;up\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := cli.NewRootCmd()
+	cmd.SetArgs([]string{
+		"analyze", "-i", input,
+		"-o", report,
+		"--failed-output", filepath.Join(dir, ".", "report.md"),
+		"--progress", "never",
+	})
+	err := cmd.ExecuteContext(context.Background())
+	if err == nil {
+		t.Fatal("expected error when --failed-output is the output path")
+	}
+	if !strings.Contains(err.Error(), "--failed-output") || !strings.Contains(err.Error(), "--output") {
+		t.Fatalf("error = %v", err)
+	}
+}

@@ -30,7 +30,8 @@ type analyzeOptions struct {
 	concurrency int
 	timeout     time.Duration
 
-	progress string
+	progress     string
+	failedOutput string
 }
 
 func newAnalyzeCmd() *cobra.Command {
@@ -69,6 +70,7 @@ Unsupported language constructs return an error that is grouped in the report.`)
 	f.IntVarP(&opts.concurrency, "concurrency", "c", 8, "number of queries to check in parallel")
 	f.DurationVar(&opts.timeout, "timeout", 30*time.Second, "per-request timeout")
 	f.StringVar(&opts.progress, "progress", string(progress.ModeAuto), "progress output: auto, always or never")
+	f.StringVar(&opts.failedOutput, "failed-output", "", "write unsupported queries as dashboardUID;query lines (.gz compresses); replaces the file")
 
 	_ = cmd.MarkFlagRequired("input")
 
@@ -120,9 +122,29 @@ func resolveAnalyzeImage(version, image string) (string, error) {
 	}
 }
 
+func validateFailedOutputPath(input, output, failedOutput string) error {
+	failedOutput = strings.TrimSpace(failedOutput)
+	if failedOutput == "" {
+		return nil
+	}
+	if analyze.SameExportPath(input, failedOutput) {
+		return fmt.Errorf("--failed-output %q is the same path as --input", failedOutput)
+	}
+	output = strings.TrimSpace(output)
+	if output != "" && output != "-" {
+		if analyze.SameExportPath(output, failedOutput) {
+			return fmt.Errorf("--failed-output %q is the same path as --output", failedOutput)
+		}
+	}
+	return nil
+}
+
 func runAnalyze(cmd *cobra.Command, opts *analyzeOptions) error {
 	if strings.TrimSpace(opts.input) == "" {
 		return fmt.Errorf("--input is required")
+	}
+	if err := validateFailedOutputPath(opts.input, opts.output, opts.failedOutput); err != nil {
+		return err
 	}
 	image, err := resolveAnalyzeImage(opts.esVersion, opts.esImage)
 	if err != nil {
@@ -196,14 +218,30 @@ func runAnalyze(cmd *cobra.Command, opts *analyzeOptions) error {
 	tracker.Start()
 	defer tracker.Stop()
 
+	var failed *analyze.FailedExport
+	if path := strings.TrimSpace(opts.failedOutput); path != "" {
+		failed = &analyze.FailedExport{Path: path}
+	}
+
 	analyzeErr := analyze.StreamAnalyze(ctx, opts.input, analyze.StreamOptions{
 		Client:      client,
 		Concurrency: opts.concurrency,
 		Report:      report,
+		Failed:      failed,
 		OnQuery: func() {
 			tracker.AddQuery()
 		},
 	})
+
+	if failed != nil {
+		if err := failed.Close(); err != nil {
+			if analyzeErr != nil {
+				analyzeErr = fmt.Errorf("%w (also failed to close failed queries file: %v)", analyzeErr, err)
+			} else {
+				analyzeErr = err
+			}
+		}
+	}
 
 	var out *os.File
 	if opts.output == "-" {
@@ -231,6 +269,11 @@ func runAnalyze(cmd *cobra.Command, opts *analyzeOptions) error {
 	if total > 0 {
 		fmt.Fprintf(cmd.ErrOrStderr(), "%d/%d queries supported by Elasticsearch (%.1f%%)\n",
 			successful, total, float64(successful)*100/float64(total))
+	}
+	if failed != nil {
+		if n := failed.Count(); n > 0 {
+			fmt.Fprintf(cmd.ErrOrStderr(), "wrote %d failed queries to %s\n", n, failed.Path)
+		}
 	}
 	return analyzeErr
 }

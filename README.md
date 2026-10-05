@@ -165,7 +165,12 @@ variable when both would otherwise apply.
 
 The report is markdown with a summary table and error groups. Grafana template
 variables are scrubbed before each request, the same way the Elasticsearch
-PromqlCoverageAnalyzer does.
+PromqlCoverageAnalyzer does. Pass `--failed-output` to write only the
+unsupported queries in the same `dashboardUID;query` format as the input
+export (gzip when the path ends in `.gz`), so you can re-run `analyze` on
+just those lines. The file is replaced when checking starts, including
+when every query succeeds, and must not be the same path as `--input` or
+`--output`.
 
 ## Development
 
