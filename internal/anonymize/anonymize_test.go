@@ -20,7 +20,7 @@ func newAnonymizer(t *testing.T) *anonymize.Anonymizer {
 }
 
 // pseudonym matches any replacement this package produces.
-var pseudonym = regexp.MustCompile(`(metric|label|value|var|func|dash)_[0-9a-f]{10}`)
+var pseudonym = regexp.MustCompile(`(metric|label|value|var|func|dash|rule)_[0-9a-f]{10}`)
 
 // shape replaces every pseudonym with its kind, so that a test can assert what
 // was replaced with what without hard coding digests.
@@ -222,6 +222,21 @@ func TestUID(t *testing.T) {
 	}
 	if a.UID("") != "" {
 		t.Error("an empty uid should stay empty")
+	}
+}
+
+func TestRule(t *testing.T) {
+	a := newAnonymizer(t)
+
+	id := "rule:prom-main/rules/payments.yml/payments/PaymentsDown"
+	if got := shape(a.Rule(id)); got != "<rule>" {
+		t.Errorf("Rule = %q, want a rule pseudonym", got)
+	}
+	if a.Rule(id) == a.UID(id) {
+		t.Error("a rule and a dashboard of the same name share a pseudonym")
+	}
+	if a.Rule(id) != a.Rule(id) {
+		t.Error("a rule identifier is not stable")
 	}
 }
 

@@ -80,6 +80,9 @@ type Stats struct {
 	UnresolvedSkipped  int
 	LibraryPanels      int
 	PartialDecodes     int
+	AlertRules         int
+	RecordingRules     int
+	RuleQueries        int
 }
 
 // Merge accumulates other into s.
@@ -97,6 +100,9 @@ func (s *Stats) Merge(other Stats) {
 	s.UnresolvedSkipped += other.UnresolvedSkipped
 	s.LibraryPanels += other.LibraryPanels
 	s.PartialDecodes += other.PartialDecodes
+	s.AlertRules += other.AlertRules
+	s.RecordingRules += other.RecordingRules
+	s.RuleQueries += other.RuleQueries
 	for t, n := range other.SkippedByType {
 		if s.SkippedByType == nil {
 			s.SkippedByType = make(map[string]int, len(other.SkippedByType))
@@ -129,7 +135,8 @@ type TypeCount struct {
 	Count int
 }
 
-// Result is the outcome of extracting one dashboard.
+// Result is the outcome of extracting one dashboard or rule. UID is the
+// dashboard uid, or the identifier of the rule.
 type Result struct {
 	UID     string
 	Queries []string
@@ -142,51 +149,10 @@ func (e *Extractor) Extract(env *Envelope) Result {
 	res := Result{UID: dash.UID}
 	res.Stats.Dashboards = 1
 
-	var seen map[string]struct{}
-	if e.Dedupe {
-		seen = make(map[string]struct{})
-	}
-
-	// appendQuery reports whether the expression ended up in the output.
-	appendQuery := func(expr string) bool {
-		query := normalizeQuery(expr)
-		if query == "" {
-			res.Stats.SkippedEmpty++
-			return false
-		}
-		if seen != nil {
-			if _, dup := seen[query]; dup {
-				res.Stats.Duplicates++
-				return false
-			}
-			seen[query] = struct{}{}
-		}
-		res.Queries = append(res.Queries, query)
-		res.Stats.Queries++
-		return true
-	}
-
-	// consider keeps an expression when the datasource backing it speaks PromQL.
+	c := e.newCollector(&res)
 	consider := func(inherited, ref DatasourceRef, expr string) bool {
 		pluginType, special := e.resolve(dash, inherited, ref)
-		switch {
-		case special:
-			res.Stats.SkippedSpecial++
-		case pluginType == "":
-			if e.IncludeUnresolved && normalizeQuery(expr) != "" {
-				res.Stats.UnresolvedIncluded++
-				return appendQuery(expr)
-			}
-			res.Stats.UnresolvedSkipped++
-		case e.Allowed.Has(pluginType):
-			return appendQuery(expr)
-		default:
-			if res.Stats.SkippedByType == nil {
-				res.Stats.SkippedByType = make(map[string]int)
-			}
-			res.Stats.SkippedByType[strings.ToLower(pluginType)]++
-		}
-		return false
+		return c.consider(pluginType, special, expr)
 	}
 
 	var visit func(panel Panel, inherited DatasourceRef)
@@ -238,6 +204,65 @@ func (e *Extractor) Extract(env *Envelope) Result {
 	}
 
 	return res
+}
+
+// collector gathers the queries of one dashboard or rule, deduplicating them
+// when asked to and recording in the stats why anything was left out.
+type collector struct {
+	e    *Extractor
+	res  *Result
+	seen map[string]struct{}
+}
+
+func (e *Extractor) newCollector(res *Result) *collector {
+	c := &collector{e: e, res: res}
+	if e.Dedupe {
+		c.seen = make(map[string]struct{})
+	}
+	return c
+}
+
+// add reports whether the expression ended up in the output.
+func (c *collector) add(expr string) bool {
+	stats := &c.res.Stats
+	query := normalizeQuery(expr)
+	if query == "" {
+		stats.SkippedEmpty++
+		return false
+	}
+	if c.seen != nil {
+		if _, dup := c.seen[query]; dup {
+			stats.Duplicates++
+			return false
+		}
+		c.seen[query] = struct{}{}
+	}
+	c.res.Queries = append(c.res.Queries, query)
+	stats.Queries++
+	return true
+}
+
+// consider keeps an expression when the datasource backing it speaks PromQL.
+func (c *collector) consider(pluginType string, special bool, expr string) bool {
+	stats := &c.res.Stats
+	switch {
+	case special:
+		stats.SkippedSpecial++
+	case pluginType == "":
+		if c.e.IncludeUnresolved && normalizeQuery(expr) != "" {
+			stats.UnresolvedIncluded++
+			return c.add(expr)
+		}
+		stats.UnresolvedSkipped++
+	case c.e.Allowed.Has(pluginType):
+		return c.add(expr)
+	default:
+		if stats.SkippedByType == nil {
+			stats.SkippedByType = make(map[string]int)
+		}
+		stats.SkippedByType[strings.ToLower(pluginType)]++
+	}
+	return false
 }
 
 // resolve determines the datasource plugin type backing a target. It reports

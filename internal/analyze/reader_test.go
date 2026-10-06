@@ -34,6 +34,27 @@ func TestScanExport(t *testing.T) {
 	}
 }
 
+// Rules carry an identifier where dashboards carry a uid, and read the same.
+func TestScanExportRuleLine(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "queries.txt")
+	line := "rule:prom-main/etc/prometheus/rules.yml/api/HighErrorRate;job:http_errors:rate5m > 1\n"
+	if err := os.WriteFile(path, []byte(line), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var entries []analyze.Entry
+	if err := analyze.ScanExport(path, func(e analyze.Entry) error {
+		entries = append(entries, e)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].DashboardUID != "rule:prom-main/etc/prometheus/rules.yml/api/HighErrorRate" ||
+		entries[0].Query != "job:http_errors:rate5m > 1" {
+		t.Fatalf("entries = %+v", entries)
+	}
+}
+
 func TestScanExportInvalidLine(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "queries.txt")

@@ -32,7 +32,9 @@ rather than explain it twice.
 `make test-all` runs every tier that needs no third-party service.
 
 **Integration tests** (`integration` build tag) start Grafana with testcontainers and skip
-themselves when Docker is not running. Point them at another release with
+themselves when Docker is not running. Grafana runs next to a Prometheus that loads the rule
+fixtures, and provisions the Grafana-managed ones, so run this tier after touching how rules
+are read as well. Point them at another release with
 `make test-integration GRAFANA_IMAGE=grafana/grafana:11.6.6`. The analyze test starts
 Elasticsearch in Docker; override with `ES_VERSION` (resolved tag) or `ES_IMAGE`
 (full image reference). Locally `make test-integration` runs both; CI runs Grafana

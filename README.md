@@ -1,8 +1,10 @@
 # grafana-promql-extractor
 
-Extract the PromQL queries from every dashboard of a Grafana instance into a flat file.
+Extract the PromQL queries from every dashboard, alert rule and recording rule of a Grafana
+instance into a flat file.
 
-Output is one query per line, prefixed by the dashboard UID and a semicolon:
+Output is one query per line, prefixed by where it came from, a dashboard UID or a rule
+identifier, and a semicolon:
 
 ```
 cdf6f5b7;sum(rate(http_requests_total[5m]))
@@ -13,6 +15,9 @@ Only queries backed by a Prometheus-family datasource are included. Loki, CloudW
 Elasticsearch and other query languages are filtered out by resolving each panel's and
 target's datasource reference to a concrete plugin type. Panel targets and annotation
 queries are both extracted, since Grafana runs both against the datasource.
+
+Rules come first, with an identifier in place of the dashboard UID; see
+[Alert and recording rules](#alert-and-recording-rules).
 
 ## Install
 
@@ -42,7 +47,7 @@ That writes `promql-queries.txt.gz` and reports progress on stderr:
 ```
 
 A service account token is the recommended credential, and a **Viewer** role is enough:
-the tool only reads dashboards and datasource metadata. Basic auth works too, through
+the tool only reads dashboards, rules and datasource metadata. Basic auth works too, through
 `--user` and `--password`. Every credential flag has an environment variable equivalent —
 `GRAFANA_URL`, `GRAFANA_TOKEN`, `GRAFANA_USER`, `GRAFANA_PASSWORD`, `GRAFANA_ORG_ID` — and
 those are worth preferring so credentials do not end up in your shell history.
@@ -79,12 +84,13 @@ request per dashboard for an instance that answers a batched read oddly.
 
 ## Output format
 
-Each line is `<dashboard-uid>;<query>`. Split on the **first** semicolon only: a PromQL
-label value may legitimately contain one, while a dashboard UID never does.
+Each line is `<source>;<query>`, where the source is a dashboard UID, or a rule identifier
+starting with `rule:` (`rule_` when anonymized). Split on the **first** semicolon only: a
+PromQL label value may legitimately contain one, while a source never does.
 
 ```bash
 zcat promql-queries.txt.gz | cut -d';' -f2-          # queries only
-zcat promql-queries.txt.gz | cut -d';' -f1 | uniq -c # queries per dashboard
+zcat promql-queries.txt.gz | cut -d';' -f1 | uniq -c # queries per dashboard or rule
 ```
 
 Multi-line expressions are collapsed onto a single line, so every query occupies exactly
@@ -97,6 +103,35 @@ such as `label_values(up, job)`, which are Grafana functions rather than PromQL.
 whose datasource cannot be identified at all are kept, on the assumption that an `expr`
 field is most likely PromQL; `--include-unresolved=false` drops them instead. The summary
 printed at the end of a run counts everything it skipped, and why.
+
+## Alert and recording rules
+
+Rules carry PromQL too, and recording rules matter most: dashboards often query the
+metrics they write rather than the raw series. A run reads the rules Grafana evaluates
+itself and those of every Prometheus-family datasource, Prometheus rule files or the Mimir
+ruler, before the dashboards. Their queries go through the same datasource filter, so the
+expressions Grafana reduces and compares results with are left out, and Loki rulers are
+not asked.
+
+```
+rule:fe4kq1xm9;sum(rate(http_requests_total{code=~"5.."}[5m])) / sum(rate(http_requests_total[5m]))
+rule:prom-main/etc/prometheus/rules/api.yml/api/job:http_errors:rate5m;sum by (job) (rate(http_requests_total{code=~"5.."}[5m]))
+```
+
+A rule Grafana evaluates is named by its uid. One a datasource evaluates has none, and is
+named by the datasource uid, the file or Mimir namespace, the group and the rule name, in
+that order. Only the file keeps its slashes; a `/`, `;`, `#` or `%` in any other part is
+percent-encoded. Rules that share a name within a group, such as one alert at two
+severities, get `#2`, `#3` and so on appended in the order the group lists them. A
+datasource that serves the same rules as another, two datasources in front of one
+Prometheus for example, contributes them a second time under its own uid.
+
+A Viewer token is enough. An instance with alerting turned off is passed over quietly;
+credentials that may not read rules, or a datasource whose rules cannot be read, are
+reported and counted in the summary, and the run carries on. A run limited by
+`--folder-uid`, `--tag` or `--max-dashboards` leaves the rules out, since they belong to no
+dashboard. `--rules on` reads them regardless and fails when the instance does not serve
+them; `--rules off` never reads them.
 
 ## Sharing the output
 
@@ -111,11 +146,11 @@ grafana-promql-extractor extract --anonymize -o shareable.txt
 dash_9e3a17b204;sum by (label_1f7c4a0e83) (rate(metric_5b8d02c9a1{label_44e1b7cd90=~"$var_7c0a91fe32"}[$__rate_interval]))
 ```
 
-Metric names, label names, label values, dashboard variable names and dashboard UIDs are
-replaced. What is the same in every Grafana instance is kept, so the queries stay worth
-analyzing: functions, aggregations, operators, durations, numbers, regular expression
-syntax, the reserved labels `le` and `quantile`, and Grafana's own `$__rate_interval` and
-friends. An identifier maps to the same pseudonym everywhere in the output, so grouping and
+Metric names, label names, label values, dashboard variable names, dashboard UIDs and rule
+identifiers are replaced; a rule becomes `rule_` and a digest. What is the same in every
+Grafana instance is kept, so the queries stay worth analyzing: functions, aggregations,
+operators, durations, numbers, regular expression syntax, the reserved labels `le` and
+`quantile`, and Grafana's own `$__rate_interval` and friends. An identifier maps to the same pseudonym everywhere in the output, so grouping and
 counting still work.
 
 The mapping is a salted digest whose salt is random per run and never written down, so
@@ -130,7 +165,8 @@ grafana-promql-extractor extract --anonymize
 Two caveats worth knowing before sharing. Anything the tool cannot recognize as PromQL is
 pseudonymized rather than kept, so a query in a dialect such as MetricsQL loses the parts
 of its syntax that Prometheus does not have. And stderr is not anonymized: `--verbose`
-logs real dashboard UIDs for failures.
+logs real dashboard UIDs for failures, and warnings name the datasources whose rules could
+not be read.
 
 ## Checking Elasticsearch support
 

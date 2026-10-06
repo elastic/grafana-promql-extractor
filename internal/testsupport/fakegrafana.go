@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/elastic/grafana-promql-extractor/internal/grafana"
 )
 
 // FakeOptions configures a FakeGrafana.
@@ -53,6 +55,15 @@ type FakeOptions struct {
 	// BulkWithoutDocuments lists every dashboard by name only, as an instance
 	// that cannot render the documents does.
 	BulkWithoutDocuments bool
+	// Rules serves the rule fixtures, the Grafana-managed ones and those of
+	// every Prometheus datasource. Without it both answer 404, as an instance
+	// with alerting turned off does.
+	Rules bool
+	// RulerStatus overrides the status of the Grafana-managed rules.
+	RulerStatus int
+	// DatasourceRulesStatus overrides the status of the rules of a datasource,
+	// by uid.
+	DatasourceRulesStatus map[string]int
 }
 
 // SyntheticUID is the uid of the nth synthetic dashboard, one-based.
@@ -116,6 +127,8 @@ func NewFakeGrafana(t *testing.T, opts FakeOptions) *FakeGrafana {
 	mux.HandleFunc(SearchRoute, fake.handleSearch)
 	mux.HandleFunc("/api/dashboards/uid/", fake.handleDashboard)
 	mux.HandleFunc(BulkRoute, fake.handleBulk)
+	mux.HandleFunc(grafana.GrafanaRulesPath, fake.handleRuler)
+	mux.HandleFunc(DatasourceRulesRoute, fake.handleDatasourceRules)
 
 	fake.Server = httptest.NewServer(fake.instrument(mux))
 	fake.URL = fake.Server.URL
@@ -150,6 +163,8 @@ func routeKey(path string) string {
 		return DashboardRoute
 	case strings.HasPrefix(path, BulkRoute):
 		return BulkRoute
+	case strings.HasPrefix(path, DatasourceRulesRoute):
+		return DatasourceRulesRoute
 	default:
 		return path
 	}
@@ -357,6 +372,45 @@ func (f *FakeGrafana) handleBulk(w http.ResponseWriter, r *http.Request) {
 		"metadata": metadata,
 		"items":    items,
 	})
+}
+
+// DatasourceRulesRoute is the prefix Grafana passes the rules API of its
+// datasources on under, and the key requests to it are counted under.
+const DatasourceRulesRoute = "/api/prometheus/"
+
+func (f *FakeGrafana) handleRuler(w http.ResponseWriter, _ *http.Request) {
+	if status := f.opts.RulerStatus; status != 0 && status != http.StatusOK {
+		http.Error(w, `{"message":"`+http.StatusText(status)+`"}`, status)
+		return
+	}
+	if !f.opts.Rules {
+		http.Error(w, "404 page not found", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(RulerJSON())
+}
+
+// handleDatasourceRules serves the rules of a Prometheus datasource, and
+// refuses any other, the way Grafana does for a type without a rules API.
+func (f *FakeGrafana) handleDatasourceRules(w http.ResponseWriter, r *http.Request) {
+	uid, ok := strings.CutSuffix(strings.TrimPrefix(r.URL.Path, DatasourceRulesRoute), "/api/v1/rules")
+	if !ok || !f.opts.Rules {
+		http.Error(w, "404 page not found", http.StatusNotFound)
+		return
+	}
+	if status := f.opts.DatasourceRulesStatus[uid]; status != 0 && status != http.StatusOK {
+		http.Error(w, `{"message":"`+http.StatusText(status)+`"}`, status)
+		return
+	}
+	for _, ds := range Datasources() {
+		if ds.UID == uid && ds.Type == "prometheus" {
+			w.Header().Set("Content-Type", "application/json")
+			w.Write(PrometheusRulesJSON())
+			return
+		}
+	}
+	http.Error(w, `{"message":"datasource does not support rules"}`, http.StatusNotFound)
 }
 
 func (f *FakeGrafana) bulkNamespace() string {

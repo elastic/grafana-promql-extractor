@@ -26,5 +26,10 @@ grafana.com, kept as regression tests against real-world schema versions:
 Both had their numeric `id` removed so they can be uploaded to any instance, and
 `real-legacy-rows.json` was given a stable `uid` because the original has none.
 
+The rule fixtures are not files: `internal/testsupport/rules.go` defines them once and
+renders them for each consumer, as the ruler and Prometheus rules APIs the fake serves, as a
+Grafana alerting provisioning file and as a Prometheus rule file for the integration tests.
+Their expected lines are written alongside them.
+
 For coverage beyond a curated set, `make test-corpus` runs the extractor over the top
 dashboards on grafana.com; see the README.
