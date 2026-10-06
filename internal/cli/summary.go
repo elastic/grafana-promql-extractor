@@ -82,38 +82,6 @@ func summary(out io.Writer, tracker *progress.Tracker, stats extract.Stats, file
 	}
 }
 
-// resumeHint tells the user where to pick a run up again, whether it was
-// interrupted or stopped by an error. A bulk run has no page numbers to resume
-// from, only the opaque token that fetched the page it stopped on.
-func resumeHint(out io.Writer, position resumePosition, interrupted bool, opts *options) {
-	what := "Interrupted"
-	if !interrupted {
-		what = "Stopped by an error"
-	}
-	switch {
-	case !position.bulk:
-		fmt.Fprintf(out, "\n%s on search page %d. Resume with --start-page %d --append; "+
-			"the dashboards of that page may repeat.\n", what, position.page, position.page)
-	case position.token == "":
-		fmt.Fprintf(out, "\n%s on the first page of dashboards. Start over; nothing worth resuming was written.\n", what)
-	default:
-		fmt.Fprintf(out, "\n%s while listing dashboards. Resume with --continue-token %s --append; "+
-			"the dashboards of that page may repeat.\n", what, position.token)
-	}
-	if opts.anonymize && opts.anonymizeSalt == "" {
-		fmt.Fprintf(out, "A resumed run would pseudonymize differently, since this one used a random salt. "+
-			"Start over with --anonymize-salt to get one consistent file.\n")
-	}
-}
-
-// resumePosition is where enumeration stood when a run ended early: a page
-// number for the search API, an opaque token for a bulk listing.
-type resumePosition struct {
-	bulk  bool
-	page  int
-	token string
-}
-
 // rows is a list of label and value pairs, printed with the labels padded to a
 // common width so that adding one does not mean re-aligning the others.
 type rows struct {
