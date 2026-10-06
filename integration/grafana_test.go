@@ -35,7 +35,7 @@ func TestExtractor(t *testing.T) {
 			"--password", instance.AdminPassword(),
 			"--compress=false")
 
-		assertSameLines(t, readLines(t, out), testsupport.ExpectedLines(instance.All()))
+		assertSameLines(t, readLines(t, out), instance.Expected())
 		if !strings.Contains(stderr, "queries written") {
 			t.Errorf("missing summary:\n%s", stderr)
 		}
@@ -48,7 +48,7 @@ func TestExtractor(t *testing.T) {
 			"--compress=false",
 			"--verbose")
 
-		assertSameLines(t, readLines(t, out), testsupport.ExpectedLines(instance.All()))
+		assertSameLines(t, readLines(t, out), instance.Expected())
 		t.Log(datasourceSourceLine(stderr))
 	})
 
@@ -65,7 +65,7 @@ func TestExtractor(t *testing.T) {
 			t.Fatalf("run failed: %v\n%s", err, stderr)
 		}
 
-		assertSameLines(t, readLines(t, out), testsupport.ExpectedLines(instance.All()))
+		assertSameLines(t, readLines(t, out), instance.Expected())
 		if !strings.Contains(stderr, "/api/frontend/settings") {
 			t.Errorf("expected the fallback to be reported:\n%s", stderr)
 		}
@@ -117,14 +117,14 @@ func TestExtractor(t *testing.T) {
 		if _, err := os.Stat(out); err == nil {
 			t.Error("the uncompressed path should not exist")
 		}
-		assertSameLines(t, readGzipLines(t, out+".gz"), testsupport.ExpectedLines(instance.All()))
+		assertSameLines(t, readGzipLines(t, out+".gz"), instance.Expected())
 	})
 
 	t.Run("Pagination", func(t *testing.T) {
 		out := filepath.Join(t.TempDir(), "queries.txt")
 		run(t, instance, out, "--compress=false", "--page-size", "3", "--concurrency", "4")
 
-		assertSameLines(t, readLines(t, out), testsupport.ExpectedLines(instance.All()))
+		assertSameLines(t, readLines(t, out), instance.Expected())
 	})
 
 	t.Run("MaxDashboards", func(t *testing.T) {
@@ -169,7 +169,7 @@ func TestExtractor(t *testing.T) {
 			}
 			all = append(all, lines...)
 		}
-		assertSameLines(t, all, testsupport.ExpectedLines(instance.All()))
+		assertSameLines(t, all, instance.Expected())
 	})
 
 	t.Run("FolderFilter", func(t *testing.T) {
@@ -211,7 +211,7 @@ func TestExtractor(t *testing.T) {
 		}
 
 		assertSameLines(t, readLines(t, bulk), readLines(t, perDashboard))
-		assertSameLines(t, readLines(t, bulk), testsupport.ExpectedLines(instance.All()))
+		assertSameLines(t, readLines(t, bulk), instance.Expected())
 	})
 
 	// Whichever strategy a release supports, the default has to produce the
@@ -220,8 +220,15 @@ func TestExtractor(t *testing.T) {
 		out := filepath.Join(t.TempDir(), "queries.txt")
 		stderr := run(t, instance, out, "--compress=false", "--verbose", "--bulk", "auto")
 
-		assertSameLines(t, readLines(t, out), testsupport.ExpectedLines(instance.All()))
+		assertSameLines(t, readLines(t, out), instance.Expected())
 		t.Logf("strategy: %s", strategyLine(stderr))
+	})
+
+	t.Run("RulesOff", func(t *testing.T) {
+		out := filepath.Join(t.TempDir(), "queries.txt")
+		run(t, instance, out, "--compress=false", "--rules", "off")
+
+		assertSameLines(t, readLines(t, out), testsupport.ExpectedLines(instance.All()))
 	})
 
 	t.Run("RejectsBadCredentials", func(t *testing.T) {

@@ -1,5 +1,6 @@
-// Package output writes extracted queries as "dashboardUID;query" lines,
-// optionally gzip compressed and split across several files.
+// Package output writes extracted queries as "source;query" lines, where the
+// source is a dashboard uid or the identifier of a rule, optionally gzip
+// compressed and split across several files.
 package output
 
 import (
@@ -12,7 +13,7 @@ import (
 )
 
 const (
-	// Separator divides the dashboard UID from the query. Consumers should
+	// Separator divides the source from the query. Consumers should
 	// split on the first occurrence only, since a PromQL label value may
 	// legitimately contain a semicolon.
 	Separator = ';'
@@ -27,15 +28,17 @@ type Options struct {
 	Path string
 	// Compress gzips the output.
 	Compress bool
-	// DashboardsPerFile rotates to a new file after this many dashboards with
-	// at least one query. Zero writes a single file.
+	// DashboardsPerFile rotates to a new file after this many sources, a
+	// dashboard or a rule, with at least one query. Zero writes a single file.
 	DashboardsPerFile int
 }
 
 // FileInfo describes one written output file.
 type FileInfo struct {
-	Path       string
+	Path string
+	// Dashboards and Rules count the sources with queries in the file.
 	Dashboards int
+	Rules      int
 	Queries    int
 }
 
@@ -56,19 +59,28 @@ type Writer struct {
 	line    []byte
 }
 
-// New creates a Writer. No file is opened until the first dashboard with
+// New creates a Writer. No file is opened until the first source with
 // queries arrives, so a run that finds nothing leaves no empty files behind.
 func New(opt Options) *Writer {
 	return &Writer{opt: opt, line: make([]byte, 0, 1024)}
 }
 
 // WriteDashboard appends every query of one dashboard. Rotation happens between
-// dashboards, so a dashboard's queries never span two files.
+// sources, so the queries of one never span two files.
 func (w *Writer) WriteDashboard(uid string, queries []string) error {
+	return w.write(uid, queries, &w.current.Dashboards)
+}
+
+// WriteRule appends every query of one alert or recording rule.
+func (w *Writer) WriteRule(id string, queries []string) error {
+	return w.write(id, queries, &w.current.Rules)
+}
+
+func (w *Writer) write(source string, queries []string, counter *int) error {
 	if len(queries) == 0 {
 		return nil
 	}
-	if w.opt.DashboardsPerFile > 0 && w.current.Dashboards >= w.opt.DashboardsPerFile {
+	if w.opt.DashboardsPerFile > 0 && w.current.Dashboards+w.current.Rules >= w.opt.DashboardsPerFile {
 		if err := w.closeCurrent(); err != nil {
 			return err
 		}
@@ -79,10 +91,10 @@ func (w *Writer) WriteDashboard(uid string, queries []string) error {
 		}
 	}
 
-	safeUID := sanitizeUID(uid)
+	safeSource := sanitizeSource(source)
 	w.line = w.line[:0]
 	for _, query := range queries {
-		w.line = append(w.line, safeUID...)
+		w.line = append(w.line, safeSource...)
 		w.line = append(w.line, Separator)
 		w.line = append(w.line, query...)
 		w.line = append(w.line, '\n')
@@ -91,7 +103,7 @@ func (w *Writer) WriteDashboard(uid string, queries []string) error {
 		return fmt.Errorf("writing to %s: %w", w.current.Path, err)
 	}
 
-	w.current.Dashboards++
+	*counter++
 	w.current.Queries += len(queries)
 	return nil
 }
@@ -182,11 +194,11 @@ func (w *Writer) pathFor(index int) string {
 	return path
 }
 
-// sanitizeUID keeps the line format parseable even if a UID ever contained a
-// separator or a newline.
-func sanitizeUID(uid string) string {
-	if !strings.ContainsAny(uid, ";\n\r") {
-		return uid
+// sanitizeSource keeps the line format parseable even if a uid ever contained
+// a separator or a newline, which a rule name may well do.
+func sanitizeSource(source string) string {
+	if !strings.ContainsAny(source, ";\n\r") {
+		return source
 	}
 	return strings.Map(func(r rune) rune {
 		switch r {
@@ -194,5 +206,5 @@ func sanitizeUID(uid string) string {
 			return '_'
 		}
 		return r
-	}, uid)
+	}, source)
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 )
 
@@ -17,6 +18,8 @@ type Registry struct {
 	lowered map[string]string
 
 	defaultType string
+	// uidsByType lists the datasource uids of each lowercased plugin type.
+	uidsByType map[string][]string
 
 	// Source records which endpoint the registry was loaded from.
 	Source string
@@ -27,11 +30,12 @@ type Registry struct {
 // NewRegistry builds a registry from a list of datasources.
 func NewRegistry(datasources []Datasource, defaultRef, source string) *Registry {
 	r := &Registry{
-		byUID:   make(map[string]string, len(datasources)),
-		byName:  make(map[string]string, len(datasources)),
-		lowered: make(map[string]string, len(datasources)),
-		Source:  source,
-		Count:   len(datasources),
+		byUID:      make(map[string]string, len(datasources)),
+		byName:     make(map[string]string, len(datasources)),
+		lowered:    make(map[string]string, len(datasources)),
+		uidsByType: make(map[string][]string),
+		Source:     source,
+		Count:      len(datasources),
 	}
 	for _, ds := range datasources {
 		if ds.Type == "" {
@@ -39,6 +43,8 @@ func NewRegistry(datasources []Datasource, defaultRef, source string) *Registry 
 		}
 		if ds.UID != "" {
 			r.byUID[ds.UID] = ds.Type
+			key := strings.ToLower(ds.Type)
+			r.uidsByType[key] = append(r.uidsByType[key], ds.UID)
 		}
 		if ds.Name != "" {
 			r.byName[ds.Name] = ds.Type
@@ -86,6 +92,22 @@ func (r *Registry) DefaultType() string {
 		return ""
 	}
 	return r.defaultType
+}
+
+// UIDsOfType returns the uids of every datasource whose plugin type the
+// predicate accepts, sorted, so that callers can visit them in a stable order.
+func (r *Registry) UIDsOfType(accept func(pluginType string) bool) []string {
+	if r == nil {
+		return nil
+	}
+	var uids []string
+	for t, list := range r.uidsByType {
+		if accept(t) {
+			uids = append(uids, list...)
+		}
+	}
+	sort.Strings(uids)
+	return uids
 }
 
 // LoadRegistry fetches the datasource list. It prefers /api/datasources, which

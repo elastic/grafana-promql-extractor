@@ -155,6 +155,8 @@ func (i *Instance) extract(t *testing.T, extra ...string) extraction {
 		"--compress=false",
 		"--progress", "never",
 		"--verbose",
+		// Rules are not dashboards, and would only blur what this compares.
+		"--rules", "off",
 	}, extra...)
 
 	stderr, err := execute(t, args...)

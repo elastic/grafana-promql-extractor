@@ -164,21 +164,48 @@ func run(cmd *cobra.Command, opts *options) error {
 		failFast:    opts.failFast,
 	}
 
+	readRules, strictRules := chooseRules(opts, log)
+
 	tracker.Start()
-	stats, runErr := extraction.run(ctx)
+	// Rules come before the dashboards, so that --rules on fails before the
+	// long part of the run rather than after it.
+	var rules ruleOutcome
+	var rulesErr error
+	if readRules {
+		rules, rulesErr = (&ruleReader{
+			client:      client,
+			registry:    registry,
+			extractor:   extractor,
+			anonymizer:  anonymizer,
+			writer:      writer,
+			log:         log,
+			strict:      strictRules,
+			failFast:    opts.failFast,
+			concurrency: opts.concurrency,
+		}).run(ctx)
+	}
+	var stats extract.Stats
+	var runErr error
+	if rulesErr == nil {
+		stats, runErr = extraction.run(ctx)
+	}
 	closeErr := writer.Close()
 	tracker.Stop()
 
+	stats.Merge(rules.stats)
 	summary(cmd.ErrOrStderr(), tracker, stats, writer.Files(), expectation{
 		counted:  counted,
 		repaired: extraction.repaired,
-	})
-	interrupted := errors.Is(runErr, context.Canceled) || ctx.Err() != nil
+	}, rules)
+	interrupted := errors.Is(runErr, context.Canceled) || errors.Is(rulesErr, context.Canceled) || ctx.Err() != nil
 	if closeErr != nil {
 		return closeErr
 	}
 	if interrupted {
 		return ErrInterrupted
+	}
+	if rulesErr != nil {
+		return rulesErr
 	}
 	if runErr != nil {
 		return runErr
@@ -300,6 +327,11 @@ func validate(opts *options) error {
 	case bulkAuto, bulkOn, bulkOff:
 	default:
 		return fmt.Errorf("--bulk must be %s, %s or %s, not %q", bulkAuto, bulkOn, bulkOff, opts.bulk)
+	}
+	switch opts.rules {
+	case rulesAuto, rulesOn, rulesOff:
+	default:
+		return fmt.Errorf("--rules must be %s, %s or %s, not %q", rulesAuto, rulesOn, rulesOff, opts.rules)
 	}
 	if opts.anonymizeSalt != "" && !opts.anonymize {
 		return errors.New("--anonymize-salt has no effect without --anonymize")

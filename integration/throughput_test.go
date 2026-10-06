@@ -157,6 +157,8 @@ func (i *Instance) measure(t *testing.T, label string, concurrency int, extra ..
 		"--progress", "never",
 		"--verbose",
 		"--concurrency", strconv.Itoa(concurrency),
+		// Rules are not dashboards, and would only blur what this compares.
+		"--rules", "off",
 	}, extra...)
 
 	stopSampling, peak := sampleHeap(t)

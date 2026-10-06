@@ -32,6 +32,7 @@ const (
 	kindVariable  = "var_"
 	kindFunction  = "func_"
 	kindDashboard = "dash_"
+	kindRule      = "rule_"
 )
 
 // Anonymizer maps identifiers to pseudonyms. It is safe for concurrent use.
@@ -59,6 +60,15 @@ func (a *Anonymizer) UID(uid string) string {
 		return uid
 	}
 	return a.pseudonym(kindDashboard, uid)
+}
+
+// Rule rewrites the identifier of an alert or recording rule, which carries
+// folder, group and rule names that say as much as a dashboard uid does.
+func (a *Anonymizer) Rule(id string) string {
+	if id == "" {
+		return id
+	}
+	return a.pseudonym(kindRule, id)
 }
 
 // Query rewrites every identifier of a PromQL expression.
