@@ -154,6 +154,7 @@ func StartImage(t *testing.T, image string, generatedCount int) *Instance {
 	}
 
 	instance.waitForAPI(t)
+	instance.waitForFrontendDatasources(t)
 	instance.createFolder(t)
 	for _, fixture := range instance.Fixtures {
 		instance.uploadDashboard(t, fixture, "")
@@ -193,6 +194,59 @@ func (i *Instance) waitForAPI(t *testing.T) {
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
+}
+
+// waitForFrontendDatasources blocks until /api/frontend/settings lists every
+// provisioned datasource with its type. Grafana 13.2 answers requests before
+// it has loaded all datasource plugins, and until then leaves the datasources
+// of the missing plugins out of the settings, which the fallback would read as
+// unresolved references.
+func (i *Instance) waitForFrontendDatasources(t *testing.T) {
+	t.Helper()
+
+	deadline := time.Now().Add(startupTimeout)
+	for {
+		missing, err := i.missingFrontendDatasources(t)
+		if err == nil && len(missing) == 0 {
+			return
+		}
+		if err == nil {
+			err = fmt.Errorf("missing %s", strings.Join(missing, ", "))
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("/api/frontend/settings incomplete after %s: %v", startupTimeout, err)
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+}
+
+func (i *Instance) missingFrontendDatasources(t *testing.T) ([]string, error) {
+	t.Helper()
+
+	resp, err := i.client.Do(i.request(t, http.MethodGet, "/api/frontend/settings", nil))
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("status %d", resp.StatusCode)
+	}
+	var settings struct {
+		Datasources map[string]struct {
+			Type string `json:"type"`
+		} `json:"datasources"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&settings); err != nil {
+		return nil, err
+	}
+
+	var missing []string
+	for _, ds := range testsupport.Datasources() {
+		if settings.Datasources[ds.Name].Type != ds.Type {
+			missing = append(missing, ds.Name)
+		}
+	}
+	return missing, nil
 }
 
 // URLWithoutDatasourcesAPI returns a proxy in front of Grafana that rejects
