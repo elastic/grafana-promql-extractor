@@ -9,7 +9,7 @@ require (
 	github.com/testcontainers/testcontainers-go v0.44.0
 	golang.org/x/sync v0.23.0
 	golang.org/x/term v0.45.0
-	google.golang.org/protobuf v1.34.2
+	google.golang.org/protobuf v1.36.12
 )
 
 require (
