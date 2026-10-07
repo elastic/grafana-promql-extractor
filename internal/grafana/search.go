@@ -33,15 +33,10 @@ type SearchOptions struct {
 	PageSize int
 	// Max limits the total number of dashboards returned. Zero means no limit.
 	Max int
-	// StartPage is the first page to request. Zero and one both mean the first page.
-	StartPage int
 	// FolderUIDs restricts the search to the given folders.
 	FolderUIDs []string
 	// Tags restricts the search to dashboards carrying all of the given tags.
 	Tags []string
-	// OnPage, when set, is called with the page number before its dashboards are
-	// yielded, so an interrupted run can report where to resume.
-	OnPage func(page int)
 }
 
 // ErrPagingStuck is returned when the server keeps returning the same page,
@@ -59,16 +54,6 @@ func (o SearchOptions) pageSize() int {
 	}
 }
 
-func (o SearchOptions) firstPage() int {
-	if o.StartPage > 1 {
-		return o.StartPage
-	}
-	return 1
-}
-
-// FirstPage returns the page iteration starts at.
-func (o SearchOptions) FirstPage() int { return o.firstPage() }
-
 // SearchDashboards streams dashboard hits to yield, one page at a time, so that
 // enumerating a large instance does not require holding every hit in memory.
 // Iteration stops when a short page is returned, when Max is reached, or when
@@ -79,7 +64,7 @@ func (c *Client) SearchDashboards(ctx context.Context, opt SearchOptions, yield 
 	seen := 0
 
 	var prevFirstUID string
-	for page := opt.firstPage(); ; page++ {
+	for page := 1; ; page++ {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -101,9 +86,6 @@ func (c *Client) SearchDashboards(ctx context.Context, opt SearchOptions, yield 
 				return ErrPagingStuck
 			}
 			prevFirstUID = hits[0].UID
-			if opt.OnPage != nil {
-				opt.OnPage(page)
-			}
 		}
 
 		for _, hit := range hits {
@@ -130,12 +112,7 @@ func (c *Client) SearchDashboards(ctx context.Context, opt SearchOptions, yield 
 // extraction itself: 50k dashboards is ten requests at the maximum page size.
 func (c *Client) CountDashboards(ctx context.Context, opt SearchOptions) (int, error) {
 	counting := opt
-	counting.OnPage = nil
-	// A page number only means something together with a page size, so a run
-	// resuming at a later page has to be counted with the size it will use.
-	if counting.firstPage() == 1 {
-		counting.PageSize = MaxPageSize
-	}
+	counting.PageSize = MaxPageSize
 	count := 0
 	err := c.SearchDashboards(ctx, counting, func(DashboardHit) error {
 		count++

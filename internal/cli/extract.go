@@ -23,17 +23,14 @@ type options struct {
 
 	output            string
 	compress          bool
-	appendOutput      bool
 	maxDashboards     int
 	dashboardsPerFile int
 
-	concurrency   int
-	pageSize      int
-	startPage     int
-	folderUIDs    []string
-	tags          []string
-	bulk          string
-	continueToken string
+	concurrency int
+	pageSize    int
+	folderUIDs  []string
+	tags        []string
+	bulk        string
 
 	datasourceTypes   []string
 	includeUnresolved bool
@@ -118,19 +115,15 @@ the dashboard's own datasource variables.`),
 
 	f.StringVarP(&opts.output, "output", "o", "promql-queries.txt", "output file path")
 	f.BoolVar(&opts.compress, "compress", true, "gzip the output, appending .gz to the path")
-	f.BoolVar(&opts.appendOutput, "append", false, "add to existing output files instead of replacing them")
 	f.IntVarP(&opts.maxDashboards, "max-dashboards", "n", 0, "maximum number of dashboards to export, 0 for all")
 	f.IntVar(&opts.dashboardsPerFile, "dashboards-per-file", 0, "split the output after this many dashboards, 0 for a single file")
 
 	f.IntVarP(&opts.concurrency, "concurrency", "c", 8, "number of dashboards to fetch in parallel")
 	f.IntVar(&opts.pageSize, "page-size", grafana.DefaultPageSize, fmt.Sprintf("dashboards per search request, max %d", grafana.MaxPageSize))
-	f.IntVar(&opts.startPage, "start-page", 1, "first search page to fetch, to resume an interrupted run; combine with --append")
 	f.StringSliceVar(&opts.folderUIDs, "folder-uid", nil, "only export dashboards in these folders, repeatable")
 	f.StringSliceVar(&opts.tags, "tag", nil, "only export dashboards carrying these tags, repeatable")
 	f.StringVar(&opts.bulk, "bulk", bulkAuto,
 		"read dashboards in pages of whole documents where Grafana serves them, instead of one request each: auto, on or off")
-	f.StringVar(&opts.continueToken, "continue-token", "",
-		"resume an interrupted bulk run at the page this token points at; combine with --append")
 
 	f.StringSliceVar(&opts.datasourceTypes, "datasource-types", extract.DefaultDatasourceTypes, "datasource plugin types to treat as PromQL sources")
 	f.BoolVar(&opts.includeUnresolved, "include-unresolved", true, "keep queries whose datasource type cannot be determined")

@@ -86,17 +86,6 @@ func TestSearchCapsPageSize(t *testing.T) {
 	}
 }
 
-func TestSearchStartPage(t *testing.T) {
-	fake := testsupport.NewFakeGrafana(t, testsupport.FakeOptions{Dashboards: testsupport.GeneratedFixtures(25)})
-	client := mustClient(t, grafana.Config{BaseURL: fake.URL})
-
-	uids := collectUIDs(t, client, grafana.SearchOptions{PageSize: 10, StartPage: 3})
-
-	if len(uids) != 5 || uids[0] != "gen-0021" {
-		t.Errorf("got %d dashboards starting at %v, want 5 starting at gen-0021", len(uids), uids)
-	}
-}
-
 // TestSearchFallsBackWhenSortIsRejected covers older Grafana releases that
 // reject the sort parameter.
 func TestSearchFallsBackWhenSortIsRejected(t *testing.T) {
@@ -166,22 +155,6 @@ func TestCountDashboards(t *testing.T) {
 	// Counting uses the maximum page size regardless of the configured one.
 	if got := fake.Requests("/api/search"); got != 1 {
 		t.Errorf("made %d search requests, want 1 at the maximum page size", got)
-	}
-}
-
-// A page number means nothing without a page size, so counting a resumed run
-// has to skip exactly the dashboards the run itself will skip.
-func TestCountDashboardsMatchesAResumedRun(t *testing.T) {
-	fake := testsupport.NewFakeGrafana(t, testsupport.FakeOptions{Dashboards: testsupport.GeneratedFixtures(25)})
-	client := mustClient(t, grafana.Config{BaseURL: fake.URL})
-	opt := grafana.SearchOptions{PageSize: 10, StartPage: 3}
-
-	count, err := client.CountDashboards(context.Background(), opt)
-	if err != nil {
-		t.Fatalf("CountDashboards: %v", err)
-	}
-	if want := len(collectUIDs(t, client, opt)); count != want {
-		t.Errorf("count = %d, want %d, the number of dashboards the run yields", count, want)
 	}
 }
 

@@ -26,8 +26,7 @@
 // Requests that fail with a 429 or a 5xx are retried with exponential backoff,
 // honoring Retry-After. A dashboard that cannot be fetched is counted and
 // skipped rather than aborting the run, unless --fail-fast says otherwise.
-// Interrupting flushes what has been written, prints the summary and reports
-// where to resume.
+// Interrupting flushes what has been written and prints the summary.
 //
 // # Memory and throughput
 //
@@ -67,9 +66,8 @@
 // So a run does not take a listing at its word. Once the pages are exhausted,
 // pipeline.fetchMissing enumerates /api/search and fetches whatever the pages
 // never delivered, which makes the worst case a slow run rather than a file with
-// holes. Two options cannot be checked this way, and both say so when they run:
-// --max-dashboards stops a run before it knows what it should have seen, and
-// --continue-token resumes a listing whose earlier pages this run never saw.
-// --folder-uid, --tag and --start-page cannot be expressed as a listing at all
-// and keep to one request per dashboard.
+// holes. --max-dashboards cannot be checked this way, since it stops a run
+// before it knows what it should have seen, and says so when it runs.
+// --folder-uid and --tag cannot be expressed as a listing at all and keep to
+// one request per dashboard.
 package cli

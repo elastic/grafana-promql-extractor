@@ -49,12 +49,6 @@ type ListOptions struct {
 	PageSize int
 	// Max limits how many dashboards are yielded. Zero means all of them.
 	Max int
-	// ContinueToken resumes where an earlier listing stopped.
-	ContinueToken string
-	// OnPage, when set, receives the token that fetched the page about to be
-	// yielded, so an interrupted run can be resumed from the same page. The
-	// first page reports an empty token.
-	OnPage func(token string)
 }
 
 func (o ListOptions) pageSize() int {
@@ -96,10 +90,9 @@ func (c *Client) BulkAvailable(ctx context.Context) (bool, error) {
 }
 
 // ListDashboards streams whole dashboards, page by page. Pages are chained by
-// the token the server returns with each one, so a listing cannot start in the
-// middle the way search paging can; ContinueToken resumes one instead.
+// the token the server returns with each one.
 func (c *Client) ListDashboards(ctx context.Context, opt ListOptions, yield func(DashboardDocument) error) error {
-	token := opt.ContinueToken
+	var token string
 	yielded := 0
 	// A listing ends on a page that carries no token to continue with, and a
 	// page in the middle of one has been seen to come back empty when the
@@ -111,10 +104,6 @@ func (c *Client) ListDashboards(ctx context.Context, opt ListOptions, yield func
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if opt.OnPage != nil {
-			opt.OnPage(token)
-		}
-
 		remaining := 0
 		if opt.Max > 0 {
 			remaining = opt.Max - yielded
