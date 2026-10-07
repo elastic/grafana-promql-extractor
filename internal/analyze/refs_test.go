@@ -98,6 +98,26 @@ func TestSeriesCollector(t *testing.T) {
 	}
 }
 
+func TestSeriesCollectorScrubsFormatSpecifiers(t *testing.T) {
+	c := analyze.NewSeriesCollector()
+	c.AddQuery(`${prefix:raw}rpc_server_duration_bucket{job="$job"}`)
+	c.AddQuery(`${metric:value}(http_requests_total{job="$job"}[5m])`)
+	if c.ParseSkipped() != 0 {
+		t.Fatalf("ParseSkipped() = %d, want 0", c.ParseSkipped())
+	}
+	byMetric := seriesByMetric(c.Series())
+	spec, ok := byMetric["prefixrpc_server_duration_bucket"]
+	if !ok {
+		t.Fatalf("series = %+v, want prefixrpc_server_duration_bucket", c.Series())
+	}
+	if spec.Labels["job"] != "job" {
+		t.Fatalf("job label = %q, want %q", spec.Labels["job"], "job")
+	}
+	if _, ok := byMetric["http_requests_total"]; !ok {
+		t.Fatalf("series = %+v, want http_requests_total from rate() stand-in", c.Series())
+	}
+}
+
 func TestSeriesCollectorParseSkipped(t *testing.T) {
 	c := analyze.NewSeriesCollector()
 	c.AddQuery(`up`)

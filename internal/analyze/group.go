@@ -7,11 +7,14 @@ import (
 )
 
 var (
-	linePrefix     = regexp.MustCompile(`(?m)^line -?\d+:-?\d+: `)
-	errorLineSep   = regexp.MustCompile(`\nline -?\d+:-?\d+: `)
-	bracketContent = regexp.MustCompile(`\[.*\]`)
-	digits         = regexp.MustCompile(`\d+`)
-	atThisTime     = " at this time"
+	linePrefix         = regexp.MustCompile(`(?m)^line -?\d+:-?\d+: `)
+	errorLineSep       = regexp.MustCompile(`\nline -?\d+:-?\d+: `)
+	innermostBrackets  = regexp.MustCompile(`\[[^\[\]]*\]`)
+	digits             = regexp.MustCompile(`\d+`)
+	fnNotImplemented   = regexp.MustCompile(`(?i)Function \[([^\]]+)\] is not yet implemented|unknown PromQL function \[([^\]]+)\]`)
+	fnDoesNotExist     = regexp.MustCompile(`Function \[?([^\s\[\]]+)\]? does not exist`)
+	atThisTime         = " at this time"
+	bracketPlaceholder = "\x00"
 )
 
 // ExtractErrorMessage pulls a human-readable message out of a Prometheus or
@@ -53,7 +56,8 @@ func ExtractErrorMessage(raw string) string {
 }
 
 // GroupErrors normalizes error messages for aggregation, following the Java
-// PromqlCoverageAnalyzer grouping rules.
+// PromqlCoverageAnalyzer grouping rules, except that bracketed spans are
+// stripped innermost-first so "[fn] message [query]" does not collapse to "[...]".
 func GroupErrors(errors []string) []string {
 	if len(errors) == 0 {
 		return nil
@@ -100,6 +104,9 @@ func normalizeErrorGroup(msg string) string {
 		return ""
 	}
 
+	if g := functionErrorGroup(msg); g != "" {
+		return g
+	}
 	if g := canonicalErrorGroup(msg); g != "" {
 		return g
 	}
@@ -116,16 +123,37 @@ func normalizeErrorGroup(msg string) string {
 	if strings.Contains(msg, "optimized incorrectly due to missing references") {
 		return "optimized incorrectly due to missing references"
 	}
-	if strings.Contains(msg, "Function [") && strings.Contains(msg, "] does not exist") {
-		return "Function [...] does not exist"
-	}
-	if strings.Contains(msg, "Function ") && strings.Contains(msg, " does not exist") {
-		return "Function [...] does not exist"
-	}
 	msg = linePrefix.ReplaceAllString(msg, "")
-	msg = bracketContent.ReplaceAllString(msg, "[...]")
+	msg = stripBracketContents(msg)
 	msg = digits.ReplaceAllString(msg, "N")
 	return msg
+}
+
+// stripBracketContents replaces each [...] group with [...], innermost first,
+// so "[label_replace] is only supported ... [query]" keeps the message instead
+// of collapsing to "[...]". The Java PromqlCoverageAnalyzer used a greedy
+// \[.*\], which ate any error that started and ended with a bracket.
+func stripBracketContents(msg string) string {
+	for {
+		next := innermostBrackets.ReplaceAllString(msg, bracketPlaceholder)
+		if next == msg {
+			break
+		}
+		msg = next
+	}
+	return strings.ReplaceAll(msg, bracketPlaceholder, "[...]")
+}
+
+// functionErrorGroup keeps the function name, so each missing function gets
+// its own group. Older releases report unimplemented functions as unknown.
+func functionErrorGroup(msg string) string {
+	if m := fnNotImplemented.FindStringSubmatch(msg); m != nil {
+		return "Function [" + m[1] + m[2] + "] is not yet implemented"
+	}
+	if m := fnDoesNotExist.FindStringSubmatch(msg); m != nil {
+		return "Function [" + m[1] + "] does not exist"
+	}
+	return ""
 }
 
 func canonicalErrorGroup(msg string) string {
@@ -148,10 +176,6 @@ func canonicalErrorGroup(msg string) string {
 		return "An HTTP line is larger than N bytes."
 	case strings.Contains(msg, "Expected duration or numeric value, got"):
 		return "Expected duration or numeric value, got [...]"
-	case strings.Contains(msg, "Function [") && strings.Contains(msg, "] does not exist"):
-		return "Function [...] does not exist"
-	case strings.Contains(msg, "Function ") && strings.Contains(msg, " does not exist"):
-		return "Function [...] does not exist"
 	case strings.Contains(msg, "VectorBinaryArithmetic queries with group modifiers are not supported"):
 		return "VectorBinaryArithmetic queries with group modifiers are not supported at this time [...]"
 	case strings.Contains(msg, "comparison operators are only supported at the top-level"):
@@ -174,10 +198,6 @@ func canonicalErrorGroup(msg string) string {
 		return "@ modifiers are not supported at this time [...]"
 	case strings.Contains(msg, "requires the [@timestamp] field"):
 		return "requires the [@timestamp] field [...]"
-	case strings.Contains(msg, "Function [") && strings.Contains(msg, "is not yet implemented"):
-		return "Function [...] is not yet implemented"
-	case strings.Contains(msg, "unknown PromQL function ["):
-		return "Function [...] is not yet implemented"
 	case strings.Contains(msg, "Found ambiguous reference to"):
 		if idx := strings.Index(msg, "expecting"); idx != -1 {
 			return strings.TrimSpace(msg[:idx])

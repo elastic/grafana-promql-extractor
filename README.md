@@ -163,9 +163,9 @@ snapshot build. The two are mutually exclusive; `ES_VERSION` and `ES_IMAGE` are
 the same flags via environment variables. An explicit flag wins over the other
 variable when both would otherwise apply.
 
-The report is markdown with a summary table and error groups. Grafana template
-variables are scrubbed before each request, the same way the Elasticsearch
-PromqlCoverageAnalyzer does.
+The report is markdown with a summary table and error groups; missing functions
+get one group per function name. Grafana template variables, including
+`${name:format}`, are scrubbed before each request.
 
 ## Development
 
