@@ -7,7 +7,7 @@ require (
 	github.com/golang/snappy v1.0.0
 	github.com/spf13/cobra v1.10.2
 	github.com/testcontainers/testcontainers-go v0.44.0
-	golang.org/x/sync v0.22.0
+	golang.org/x/sync v0.23.0
 	golang.org/x/term v0.45.0
 	google.golang.org/protobuf v1.34.2
 )
