@@ -29,6 +29,13 @@
 // datasource for example, is kept or dropped according to the
 // IncludeUnresolved field, and counted in [Stats] either way.
 //
+// # Rules
+//
+// [Extractor.ExtractRule] applies the same filter to alert and recording rules.
+// A rule query always names its datasource by uid, so resolution comes down to
+// a lookup; the expression datasource Grafana evaluates reductions and
+// thresholds on is skipped like __expr__ on a panel.
+//
 // # What is left out
 //
 // Queries inside library panels live outside the dashboard document and cannot

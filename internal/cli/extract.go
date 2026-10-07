@@ -31,6 +31,7 @@ type options struct {
 	folderUIDs  []string
 	tags        []string
 	bulk        string
+	rules       string
 
 	datasourceTypes   []string
 	includeUnresolved bool
@@ -64,7 +65,7 @@ func newExtractCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "extract",
-		Short: "Extract PromQL queries from Grafana dashboards",
+		Short: "Extract PromQL queries from Grafana dashboards and rules",
 		Long: strings.TrimSpace(`
 Extract PromQL queries from the dashboards of a Grafana instance.
 
@@ -76,7 +77,13 @@ query per line, prefixed by the dashboard UID and a semicolon:
 
 Only targets backed by a Prometheus-family datasource are extracted. Panel and
 target datasource references are resolved against the instance's datasources and
-the dashboard's own datasource variables.`),
+the dashboard's own datasource variables.
+
+Alert and recording rules come before the dashboards, both the ones Grafana evaluates
+and the ones its Prometheus datasources do. Their lines start with "rule:"
+instead of a dashboard UID:
+
+  rule:fe4kq1xm9;sum(rate(http_requests_total{code=~"5.."}[5m])) > 1`),
 		Example: strings.Trim(`
   # Everything, gzipped, into promql-queries.txt.gz
   export GRAFANA_URL=https://grafana.example.com
@@ -116,7 +123,7 @@ the dashboard's own datasource variables.`),
 	f.StringVarP(&opts.output, "output", "o", "promql-queries.txt", "output file path")
 	f.BoolVar(&opts.compress, "compress", true, "gzip the output, appending .gz to the path")
 	f.IntVarP(&opts.maxDashboards, "max-dashboards", "n", 0, "maximum number of dashboards to export, 0 for all")
-	f.IntVar(&opts.dashboardsPerFile, "dashboards-per-file", 0, "split the output after this many dashboards, 0 for a single file")
+	f.IntVar(&opts.dashboardsPerFile, "dashboards-per-file", 0, "split the output after this many dashboards or rules, 0 for a single file")
 
 	f.IntVarP(&opts.concurrency, "concurrency", "c", 8, "number of dashboards to fetch in parallel")
 	f.IntVar(&opts.pageSize, "page-size", grafana.DefaultPageSize, fmt.Sprintf("dashboards per search request, max %d", grafana.MaxPageSize))
@@ -124,6 +131,8 @@ the dashboard's own datasource variables.`),
 	f.StringSliceVar(&opts.tags, "tag", nil, "only export dashboards carrying these tags, repeatable")
 	f.StringVar(&opts.bulk, "bulk", bulkAuto,
 		"read dashboards in pages of whole documents where Grafana serves them, instead of one request each: auto, on or off")
+	f.StringVar(&opts.rules, "rules", rulesAuto,
+		"also extract alert and recording rules: auto reads them unless the run is limited to some dashboards, on always, off never")
 
 	f.StringSliceVar(&opts.datasourceTypes, "datasource-types", extract.DefaultDatasourceTypes, "datasource plugin types to treat as PromQL sources")
 	f.BoolVar(&opts.includeUnresolved, "include-unresolved", true, "keep queries whose datasource type cannot be determined")

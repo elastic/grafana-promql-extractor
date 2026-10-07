@@ -23,6 +23,14 @@
 //	                     v
 //	     promql-queries-00001.txt.gz, ...
 //
+// Alert and recording rules are read before the dashboards, by ruleReader in
+// rules.go: one request for the rules Grafana evaluates, and one per
+// Prometheus-family datasource for the rules it evaluates, up to --concurrency
+// of them at once. An instance holds far fewer rules than dashboards, and
+// returns each set whole, so they go straight to the writer rather than
+// through the pool. Coming first, they let --rules on fail before the long part
+// of the run rather than after it.
+//
 // Requests that fail with a 429 or a 5xx are retried with exponential backoff,
 // honoring Retry-After. A dashboard that cannot be fetched is counted and
 // skipped rather than aborting the run, unless --fail-fast says otherwise.

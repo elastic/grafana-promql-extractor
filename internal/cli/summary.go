@@ -23,24 +23,31 @@ type expectation struct {
 
 // summary reports what the run produced. Every count but the first is left out
 // when it is zero, so the block stays as short as the run was uneventful.
-func summary(out io.Writer, tracker *progress.Tracker, stats extract.Stats, files []output.FileInfo, expected expectation) {
+func summary(out io.Writer, tracker *progress.Tracker, stats extract.Stats, files []output.FileInfo,
+	expected expectation, rules ruleOutcome) {
 	dashboards, queries, failures := tracker.Counts()
-	fmt.Fprintf(out, "\nProcessed %s in %s\n",
-		count(dashboards, "dashboard", "dashboards"), tracker.Elapsed().Round(time.Millisecond))
+	ruleCount := stats.AlertRules + stats.RecordingRules
+	processed := count(dashboards, "dashboard", "dashboards")
+	if ruleCount > 0 {
+		processed += " and " + count(ruleCount, "rule", "rules")
+	}
+	fmt.Fprintf(out, "\nProcessed %s in %s\n", processed, tracker.Elapsed().Round(time.Millisecond))
 
 	var counts rows
-	counts.add("queries written", "%s from %s", humanInt(queries),
-		count(countDashboards(files), "dashboard", "dashboards"))
+	counts.add("queries written", "%s from %s", humanInt(queries+rules.queries),
+		sources(countDashboards(files), rules.written))
 	counts.addIf(stats.Panels > 0, "panels visited", "%s", humanInt(stats.Panels))
 	counts.addIf(stats.Targets > 0, "targets seen", "%s", humanInt(stats.Targets))
 	counts.addIf(stats.Annotations > 0, "annotation queries", "%s", humanInt(stats.Annotations))
+	counts.addIf(stats.AlertRules > 0, "alert rules", "%s", humanInt(stats.AlertRules))
+	counts.addIf(stats.RecordingRules > 0, "recording rules", "%s", humanInt(stats.RecordingRules))
 	counts.addIf(stats.Duplicates > 0, "duplicates dropped", "%s", humanInt(stats.Duplicates))
 	counts.addIf(stats.SkippedEmpty > 0, "empty expressions", "%s skipped",
 		count(stats.SkippedEmpty, "target", "targets"))
 	counts.addIf(stats.SkippedLogs > 0, "logs panels", "%s skipped",
 		count(stats.SkippedLogs, "target", "targets"))
 	counts.addIf(stats.SkippedSpecial > 0, "built-in datasources", "%s skipped",
-		count(stats.SkippedSpecial, "target", "targets"))
+		count(stats.SkippedSpecial, "query", "queries"))
 	counts.addIf(stats.UnresolvedIncluded+stats.UnresolvedSkipped > 0, "unresolved datasource",
 		"%s kept, %s dropped", count(stats.UnresolvedIncluded, "query", "queries"),
 		humanInt(stats.UnresolvedSkipped))
@@ -56,6 +63,8 @@ func summary(out io.Writer, tracker *progress.Tracker, stats extract.Stats, file
 	counts.addIf(stats.PartialDecodes > 0, "partially decoded", "%s",
 		count(stats.PartialDecodes, "dashboard", "dashboards"))
 	counts.addIf(failures > 0, "failed dashboards", "%s (re-run with --verbose to see why)", humanInt(failures))
+	counts.addIf(rules.failed > 0, "unreadable rules", "%s skipped",
+		count(rules.failed, "source", "sources"))
 	counts.addIf(expected.repaired > 0, "left out of the pages",
 		"%s, fetched one by one instead", humanInt(expected.repaired))
 	counts.write(out)
@@ -77,8 +86,8 @@ func summary(out io.Writer, tracker *progress.Tracker, stats extract.Stats, file
 	}
 	fmt.Fprintf(out, "  files:\n")
 	for _, f := range files {
-		fmt.Fprintf(out, "    %s (%s from %s)\n", f.Path,
-			count(f.Queries, "query", "queries"), count(f.Dashboards, "dashboard", "dashboards"))
+		fmt.Fprintf(out, "    %s (%s from %s)\n", f.Path, count(f.Queries, "query", "queries"),
+			sources(f.Dashboards, f.Rules))
 	}
 }
 
@@ -114,6 +123,19 @@ func countDashboards(files []output.FileInfo) int {
 		n += f.Dashboards
 	}
 	return n
+}
+
+// sources names where queries came from, leaving the rules out when there
+// are none.
+func sources(dashboards, rules int) string {
+	switch {
+	case rules == 0:
+		return count(dashboards, "dashboard", "dashboards")
+	case dashboards == 0:
+		return count(rules, "rule", "rules")
+	default:
+		return count(dashboards, "dashboard", "dashboards") + " and " + count(rules, "rule", "rules")
+	}
 }
 
 func humanInt(n int) string { return progress.HumanInt(n) }

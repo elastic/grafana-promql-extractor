@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/network"
 	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/elastic/grafana-promql-extractor/internal/testsupport"
@@ -35,8 +36,12 @@ const (
 	FolderUID   = "fx-folder"
 	folderTitle = "Generated dashboards"
 
-	grafanaPort     = "3000/tcp"
-	defaultImage    = "grafana/grafana:latest"
+	grafanaPort  = "3000/tcp"
+	defaultImage = "grafana/grafana:latest"
+	// prometheusImage serves the rules of the Prometheus datasources.
+	prometheusImage = "prom/prometheus:v3.5.0"
+	// prometheusHost is the name Grafana reaches Prometheus under.
+	prometheusHost  = "prometheus"
 	startupTimeout  = 3 * time.Minute
 	indexingTimeout = 60 * time.Second
 )
@@ -51,6 +56,9 @@ type Instance struct {
 	Fixtures []testsupport.Fixture
 	// Generated are the synthetic dashboards, stored in FolderUID.
 	Generated []testsupport.Fixture
+	// Rules are the lines the provisioned rules yield: the Grafana-managed
+	// ones and those Prometheus serves through each Prometheus datasource.
+	Rules []string
 
 	client *http.Client
 }
@@ -58,6 +66,11 @@ type Instance struct {
 // All returns every provisioned dashboard.
 func (i *Instance) All() []testsupport.Fixture {
 	return append(append([]testsupport.Fixture{}, i.Fixtures...), i.Generated...)
+}
+
+// Expected returns the lines a run over the whole instance must produce.
+func (i *Instance) Expected() []string {
+	return append(testsupport.ExpectedLines(i.All()), i.Rules...)
 }
 
 // AdminUser and AdminPassword expose the basic auth credentials.
@@ -72,8 +85,9 @@ func image() string {
 	return defaultImage
 }
 
-// Start boots the Grafana under test, provisions datasources and dashboards,
-// and mints a Viewer service account token. The container is terminated on test
+// Start boots the Grafana under test next to a Prometheus holding the rule
+// fixtures, provisions datasources, dashboards and Grafana-managed rules, and
+// mints a Viewer service account token. The container is terminated on test
 // cleanup.
 func Start(t *testing.T, generatedCount int) *Instance {
 	t.Helper()
@@ -86,12 +100,22 @@ func StartImage(t *testing.T, image string, generatedCount int) *Instance {
 	requireDocker(t)
 
 	ctx := context.Background()
-	provisioningPath := writeProvisioningFile(t)
+	containerNetwork, err := network.New(ctx)
+	if err != nil {
+		t.Fatalf("creating a network for Grafana and Prometheus: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := containerNetwork.Remove(context.Background()); err != nil {
+			t.Logf("removing network: %v", err)
+		}
+	})
+	startPrometheus(t, containerNetwork.Name)
 
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: testcontainers.ContainerRequest{
 			Image:        image,
 			ExposedPorts: []string{grafanaPort},
+			Networks:     []string{containerNetwork.Name},
 			Env: map[string]string{
 				"GF_SECURITY_ADMIN_USER":         adminUser,
 				"GF_SECURITY_ADMIN_PASSWORD":     adminPassword,
@@ -99,12 +123,25 @@ func StartImage(t *testing.T, image string, generatedCount int) *Instance {
 				"GF_ANALYTICS_REPORTING_ENABLED": "false",
 				"GF_ANALYTICS_CHECK_FOR_UPDATES": "false",
 				"GF_LOG_LEVEL":                   "warn",
+				// Grafana-managed recording rules are behind a feature toggle
+				// before Grafana 12, and need somewhere to write to.
+				"GF_FEATURE_TOGGLES_ENABLE":  "grafanaManagedRecordingRules",
+				"GF_RECORDING_RULES_ENABLED": "true",
+				"GF_RECORDING_RULES_URL":     "http://" + prometheusHost + ":9090/api/v1/write",
 			},
-			Files: []testcontainers.ContainerFile{{
-				HostFilePath:      provisioningPath,
-				ContainerFilePath: "/etc/grafana/provisioning/datasources/fixtures.yaml",
-				FileMode:          0o644,
-			}},
+			Files: []testcontainers.ContainerFile{
+				{
+					HostFilePath: writeFile(t, "datasources.yaml",
+						testsupport.ProvisioningYAML("http://"+prometheusHost+":9090")),
+					ContainerFilePath: "/etc/grafana/provisioning/datasources/fixtures.yaml",
+					FileMode:          0o644,
+				},
+				{
+					HostFilePath:      writeFile(t, "rules.yaml", string(testsupport.AlertingProvisioningJSON())),
+					ContainerFilePath: "/etc/grafana/provisioning/alerting/fixtures.yaml",
+					FileMode:          0o644,
+				},
+			},
 			WaitingFor: wait.ForHTTP("/api/health").
 				WithPort(grafanaPort).
 				WithStartupTimeout(startupTimeout).
@@ -145,6 +182,7 @@ func StartImage(t *testing.T, image string, generatedCount int) *Instance {
 		URL:       fmt.Sprintf("http://%s:%s", host, port.Port()),
 		Fixtures:  fixtures,
 		Generated: testsupport.GeneratedFixtures(generatedCount),
+		Rules:     testsupport.ExpectedRuleLines(),
 		// Provisioning can run concurrently, so pool more than the two
 		// connections per host the default transport keeps.
 		client: &http.Client{
@@ -291,13 +329,52 @@ func requireDocker(t *testing.T) {
 	}
 }
 
-// writeProvisioningFile renders the shared datasource definitions so the
-// container and the unit tests agree on uids, names and types.
-func writeProvisioningFile(t *testing.T) string {
+// startPrometheus runs the Prometheus the Prometheus datasources point at,
+// loading the rule fixtures, so that what Grafana passes on from a datasource
+// is what a real Prometheus reports rather than what the fake was told.
+func startPrometheus(t *testing.T, networkName string) {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "fixtures.yaml")
-	if err := os.WriteFile(path, []byte(testsupport.ProvisioningYAML()), 0o644); err != nil {
-		t.Fatalf("writing provisioning file: %v", err)
+
+	config := "global:\n  evaluation_interval: 1m\nrule_files:\n  - " + testsupport.RuleFile + "\n"
+	container, err := testcontainers.GenericContainer(context.Background(), testcontainers.GenericContainerRequest{
+		ContainerRequest: testcontainers.ContainerRequest{
+			Image:          prometheusImage,
+			ExposedPorts:   []string{"9090/tcp"},
+			Networks:       []string{networkName},
+			NetworkAliases: map[string][]string{networkName: {prometheusHost}},
+			Files: []testcontainers.ContainerFile{
+				{
+					HostFilePath:      writeFile(t, "prometheus.yml", config),
+					ContainerFilePath: "/etc/prometheus/prometheus.yml",
+					FileMode:          0o644,
+				},
+				{
+					HostFilePath:      writeFile(t, "rules.yml", testsupport.PrometheusRuleFile()),
+					ContainerFilePath: testsupport.RuleFile,
+					FileMode:          0o644,
+				},
+			},
+			WaitingFor: wait.ForHTTP("/-/ready").WithPort("9090/tcp").WithStartupTimeout(startupTimeout),
+		},
+		Started: true,
+	})
+	if err != nil {
+		t.Fatalf("starting Prometheus: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := container.Terminate(context.Background()); err != nil {
+			t.Logf("terminating Prometheus: %v", err)
+		}
+	})
+}
+
+// writeFile writes content into the test's temporary directory, for mounting
+// into a container.
+func writeFile(t *testing.T, name, content string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), name)
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("writing %s: %v", name, err)
 	}
 	return path
 }

@@ -47,8 +47,10 @@ func Registry() *grafana.Registry {
 	return grafana.NewRegistry(Datasources(), "", "testsupport")
 }
 
-// ProvisioningYAML renders the datasources as a Grafana provisioning file.
-func ProvisioningYAML() string {
+// ProvisioningYAML renders the datasources as a Grafana provisioning file. The
+// Prometheus datasources point at prometheusURL, which serves the datasource
+// rule fixtures.
+func ProvisioningYAML(prometheusURL string) string {
 	var b strings.Builder
 	b.WriteString("apiVersion: 1\ndatasources:\n")
 	for _, ds := range Datasources() {
@@ -60,7 +62,7 @@ func ProvisioningYAML() string {
 		fmt.Fprintf(&b, "    editable: false\n")
 		switch ds.Type {
 		case "prometheus":
-			fmt.Fprintf(&b, "    url: http://prometheus.invalid:9090\n")
+			fmt.Fprintf(&b, "    url: %s\n", prometheusURL)
 		case "loki":
 			fmt.Fprintf(&b, "    url: http://loki.invalid:3100\n")
 		case "cloudwatch":
