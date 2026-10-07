@@ -72,9 +72,10 @@ of megabytes, much the same as a run over 50.
 
 Throughput is set by Grafana rather than by the extractor. Expect roughly 600 dashboards per
 second against an instance on the same machine, and less over a network; the progress line
-reports what a run is actually achieving. There is no resuming a run that stops early, but
-rate limits and server errors are retried and a dashboard that cannot be fetched is
-skipped, so stopping early takes a Ctrl-C or a crash. `--bulk off` falls back to one
+reports what a run is actually achieving. Rate limits and server errors are retried and a
+dashboard that cannot be fetched is skipped unless `--fail-fast` is set, so a run stops
+early only when it is interrupted or meets an error it cannot retry, such as a rejected
+login. There is no resuming such a run; start it over. `--bulk off` falls back to one
 request per dashboard for an instance that answers a batched read oddly.
 
 ## Output format
@@ -120,7 +121,8 @@ counting still work.
 
 The mapping is a salted digest whose salt is random per run and never written down, so
 nobody can turn a pseudonym back into a name, not even by guessing likely names. That also
-means two runs produce unrelated pseudonyms. To compare runs, supply your own secret and keep it out of your shell history:
+means two runs produce unrelated pseudonyms. To compare runs, supply your own secret and
+keep it out of your shell history:
 
 ```bash
 export GRAFANA_ANONYMIZE_SALT=$(openssl rand -hex 32)
