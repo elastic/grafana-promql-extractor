@@ -3,7 +3,7 @@ module github.com/elastic/grafana-promql-extractor
 go 1.26.2
 
 require (
-	github.com/VictoriaMetrics/metricsql v0.87.3
+	github.com/VictoriaMetrics/metricsql v0.87.5
 	github.com/golang/snappy v1.0.0
 	github.com/spf13/cobra v1.10.2
 	github.com/testcontainers/testcontainers-go v0.44.0
