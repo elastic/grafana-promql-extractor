@@ -26,7 +26,19 @@ func TestGroupErrorsCanonical(t *testing.T) {
 		},
 		{
 			`unknown PromQL function [label_join]`,
-			"Function [...] is not yet implemented",
+			"Function [label_join] is not yet implemented",
+		},
+		{
+			`Unknown PromQL function [metric]`,
+			"Function [metric] is not yet implemented",
+		},
+		{
+			"line 1:1: Function [holt_winters] is not yet implemented",
+			"Function [holt_winters] is not yet implemented",
+		},
+		{
+			"Function [histogram_quantile] does not exist",
+			"Function [histogram_quantile] does not exist",
 		},
 		{
 			"Found 2 problems\nline 0:1: [sum(time()-foo)] requires the [@timestamp] field",
@@ -83,8 +95,23 @@ func TestGroupErrorsHTTPSetOperatorsCollapsesVariants(t *testing.T) {
 
 func TestGroupErrorsHTTPFunctionDoesNotExist(t *testing.T) {
 	groups := analyze.GroupErrors([]string{"Function histogram_quantile does not exist"})
-	if len(groups) != 1 || groups[0] != "Function [...] does not exist" {
+	if len(groups) != 1 || groups[0] != "Function [histogram_quantile] does not exist" {
 		t.Fatalf("groups = %#v", groups)
+	}
+}
+
+func TestGroupErrorsSplitsFunctionsByName(t *testing.T) {
+	groups := analyze.GroupErrors([]string{
+		"Function [label_join] is not yet implemented",
+		"Function [label_join] is not yet implemented",
+		"Function [holt_winters] is not yet implemented",
+	})
+	want := []string{
+		"Function [label_join] is not yet implemented",
+		"Function [holt_winters] is not yet implemented",
+	}
+	if strings.Join(groups, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("groups = %#v, want %#v", groups, want)
 	}
 }
 
@@ -113,5 +140,32 @@ func TestGroupErrorsCollapsesCounterMetricVariants(t *testing.T) {
 	g2 := analyze.GroupErrors([]string{b})
 	if len(g1) != 1 || len(g2) != 1 || g1[0] != g2[0] {
 		t.Fatalf("g1=%#v g2=%#v", g1, g2)
+	}
+}
+
+func TestGroupErrorsKeepsMessageBetweenBrackets(t *testing.T) {
+	// Elasticsearch wraps the function and the source query in brackets. A
+	// greedy \[.*\] would swallow the whole string into "[...]".
+	raw := `[label_replace] is only supported inside a ` + "`by(...)`" + ` aggregation, but was used under [topk] [label_replace(kube_pod_container_info, "version", "$1", "image", ".+:(.+)")]`
+	groups := analyze.GroupErrors([]string{raw})
+	if len(groups) != 1 {
+		t.Fatalf("groups = %#v", groups)
+	}
+	got := groups[0]
+	if got == "[...]" {
+		t.Fatalf("grouped to catch-all %q", got)
+	}
+	if !strings.Contains(got, "is only supported inside") {
+		t.Fatalf("lost error text: %q", got)
+	}
+	if strings.Contains(got, "label_replace") || strings.Contains(got, "kube_pod") {
+		t.Fatalf("expected query-specific text to be stripped, got %q", got)
+	}
+}
+
+func TestGroupErrorsStripsNestedBrackets(t *testing.T) {
+	groups := analyze.GroupErrors([]string{`foo [bar [baz] qux] remaining`})
+	if len(groups) != 1 || groups[0] != "foo [...] remaining" {
+		t.Fatalf("groups = %#v", groups)
 	}
 }

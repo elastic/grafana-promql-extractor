@@ -30,8 +30,15 @@
 //
 // # Grafana variables
 //
-// Before querying, [$var] range durations become [1m], and $var / ${var} label
-// placeholders become bare identifiers, matching the Java PromqlCoverageAnalyzer.
+// Before querying, Grafana template variables are stripped so Elasticsearch sees
+// valid PromQL: a range selector that contains a variable becomes [1m], and
+// $var / ${var} / ${var:format} / [[var]] placeholders become the variable name.
+// $1 in label_replace is left alone; it is a PromQL capture, not a Grafana
+// variable. A variable in function position stands for a function the export
+// does not name, so it gets one that accepts its argument: rate when the
+// argument is a range vector (${metric:value}(x[5m]) for a rate / increase
+// dropdown), avg when it is an instant vector (${agg}(x) for an aggregation
+// dropdown). The Java PromqlCoverageAnalyzer only handled $var / ${var}.
 //
 // # Docker
 //

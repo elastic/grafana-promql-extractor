@@ -169,3 +169,37 @@ func TestStreamAnalyze(t *testing.T) {
 		t.Fatalf("successful = %d", report.SuccessfulQueries())
 	}
 }
+
+func TestStreamAnalyzeParameterizedFunctionUsesRate(t *testing.T) {
+	var got string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.URL.Query().Get("query")
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "success"})
+	}))
+	t.Cleanup(srv.Close)
+
+	client, err := analyze.NewClient(analyze.ClientConfig{BaseURL: srv.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "queries.txt")
+	if err := os.WriteFile(path, []byte("d1;sum(${metric:value}(x[5m]))\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	report := analyze.NewReport()
+	if err := analyze.StreamAnalyze(context.Background(), path, analyze.StreamOptions{
+		Client: client,
+		Report: report,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if report.SuccessfulQueries() != 1 {
+		t.Fatalf("successful = %d", report.SuccessfulQueries())
+	}
+	if got != "sum(rate(x[5m]))" {
+		t.Fatalf("query = %q, want sum(rate(x[5m]))", got)
+	}
+}
