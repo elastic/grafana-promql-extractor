@@ -135,7 +135,7 @@ func (p *pipeline) run(ctx context.Context) (extract.Stats, error) {
 }
 
 // listDashboards reads whole dashboards in pages and then, unless the run is a
-// sample or a resumed one, picks up whatever the pages left out.
+// sample, picks up whatever the pages left out.
 func (p *pipeline) listDashboards(ctx context.Context, send func(job) error) error {
 	// Grafana assembles a page by reading a batch of dashboards and checking
 	// which of them the caller may see, and when that check fails it drops the
@@ -165,9 +165,7 @@ func (p *pipeline) listDashboards(ctx context.Context, send func(job) error) err
 // than the queries in them.
 func (p *pipeline) fetchMissing(ctx context.Context, delivered map[string]struct{}, send func(job) error) error {
 	enumerate := p.search
-	enumerate.OnPage = nil
 	enumerate.Max = 0
-	enumerate.StartPage = 0
 	enumerate.PageSize = grafana.MaxPageSize
 
 	err := p.client.SearchDashboards(ctx, enumerate, func(hit grafana.DashboardHit) error {

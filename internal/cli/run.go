@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os/signal"
 	"strings"
-	"sync/atomic"
 	"syscall"
 
 	"github.com/spf13/cobra"
@@ -97,14 +96,12 @@ func run(cmd *cobra.Command, opts *options) error {
 	searchOpts := grafana.SearchOptions{
 		PageSize:   opts.pageSize,
 		Max:        opts.maxDashboards,
-		StartPage:  opts.startPage,
 		FolderUIDs: opts.folderUIDs,
 		Tags:       opts.tags,
 	}
 	listOpts := grafana.ListOptions{
-		PageSize:      opts.pageSize,
-		Max:           opts.maxDashboards,
-		ContinueToken: opts.continueToken,
+		PageSize: opts.pageSize,
+		Max:      opts.maxDashboards,
 	}
 
 	bulk, err := chooseBulk(ctx, client, opts, log)
@@ -118,14 +115,11 @@ func run(cmd *cobra.Command, opts *options) error {
 	}
 
 	// A listing is checked against the instance once it is done, which a run
-	// that only wants a sample has no use for, and a resumed one cannot do:
-	// the dashboards before the token were delivered by the earlier run, and
-	// this one has no way of knowing which those were.
-	verify := bulk && opts.maxDashboards == 0 && opts.continueToken == ""
+	// that only wants a sample has no use for.
+	verify := bulk && opts.maxDashboards == 0
 	if bulk && !verify {
-		log.warnf("a listing cannot be checked against the instance when it is %s, "+
-			"so dashboards Grafana leaves out of a page will be missing from the output",
-			listingLimitedBy(opts))
+		log.warnf("a listing cannot be checked against the instance when it is cut short by --max-dashboards, " +
+			"so dashboards Grafana leaves out of a page will be missing from the output")
 	}
 
 	total := opts.maxDashboards
@@ -153,17 +147,7 @@ func run(cmd *cobra.Command, opts *options) error {
 		Path:              opts.output,
 		Compress:          opts.compress,
 		DashboardsPerFile: opts.dashboardsPerFile,
-		Append:            opts.appendOutput,
 	})
-
-	// Tracked so that a run which does not finish can tell the user where to
-	// resume.
-	var currentPage atomic.Int64
-	currentPage.Store(int64(searchOpts.FirstPage()))
-	searchOpts.OnPage = func(page int) { currentPage.Store(int64(page)) }
-	var currentToken atomic.Pointer[string]
-	currentToken.Store(&opts.continueToken)
-	listOpts.OnPage = func(token string) { currentToken.Store(&token) }
 
 	extraction := &pipeline{
 		client:      client,
@@ -190,21 +174,13 @@ func run(cmd *cobra.Command, opts *options) error {
 		repaired: extraction.repaired,
 	})
 	interrupted := errors.Is(runErr, context.Canceled) || ctx.Err() != nil
-	if runErr != nil {
-		resumeHint(cmd.ErrOrStderr(), resumePosition{
-			bulk:  bulk,
-			page:  int(currentPage.Load()),
-			token: *currentToken.Load(),
-		}, interrupted, opts)
-	}
-
 	if closeErr != nil {
 		return closeErr
 	}
+	if interrupted {
+		return ErrInterrupted
+	}
 	if runErr != nil {
-		if interrupted {
-			return ErrInterrupted
-		}
 		return runErr
 	}
 	// Whatever the pages left out was handed to the workers afterwards, so a
@@ -217,14 +193,6 @@ func run(cmd *cobra.Command, opts *options) error {
 			count(extraction.enumerated, "dashboard", "dashboards"))
 	}
 	return nil
-}
-
-// listingLimitedBy names why a listing has to be taken at its word.
-func listingLimitedBy(opts *options) string {
-	if opts.continueToken != "" {
-		return "resumed with --continue-token"
-	}
-	return "cut short by --max-dashboards"
 }
 
 // bulk modes.
@@ -245,11 +213,6 @@ const (
 // without being asked, which is why the default is auto.
 func chooseBulk(ctx context.Context, client *grafana.Client, opts *options, log *logger) (bool, error) {
 	mode := opts.bulk
-	// A continue token means nothing to the search API, so anything but a
-	// listing would silently start the run over.
-	if opts.continueToken != "" {
-		mode = bulkOn
-	}
 	if mode == bulkOff {
 		return false, nil
 	}
@@ -291,8 +254,6 @@ func bulkUnsupportedFor(opts *options) string {
 		return "--folder-uid"
 	case len(opts.tags) > 0:
 		return "--tag"
-	case opts.startPage > 1:
-		return "--start-page, which numbers search pages"
 	default:
 		return ""
 	}
@@ -340,19 +301,8 @@ func validate(opts *options) error {
 	default:
 		return fmt.Errorf("--bulk must be %s, %s or %s, not %q", bulkAuto, bulkOn, bulkOff, opts.bulk)
 	}
-	if opts.continueToken != "" {
-		if reason := bulkUnsupportedFor(opts); reason != "" {
-			return fmt.Errorf("--continue-token resumes a bulk listing and cannot be combined with %s", reason)
-		}
-	}
 	if opts.anonymizeSalt != "" && !opts.anonymize {
 		return errors.New("--anonymize-salt has no effect without --anonymize")
-	}
-	// A random salt per run would give the appended queries different
-	// pseudonyms than the ones already in the file.
-	if opts.anonymize && opts.appendOutput && opts.anonymizeSalt == "" {
-		return errors.New("--anonymize with --append needs --anonymize-salt, " +
-			"so that the queries added now get the same pseudonyms as the ones already written")
 	}
 	return nil
 }

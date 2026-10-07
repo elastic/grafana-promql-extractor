@@ -146,29 +146,6 @@ func TestListStopsAtMax(t *testing.T) {
 	}
 }
 
-func TestListResumesFromContinueToken(t *testing.T) {
-	server := &bulkServer{total: 25, pageSize: 10}
-	uids := collect(t, server.start(t), grafana.ListOptions{ContinueToken: "20"})
-
-	if len(uids) != 5 || uids[0] != "dash-20" {
-		t.Fatalf("listed %v, want the five dashboards after the token", uids)
-	}
-}
-
-// TestListReportsThePageItIsOn covers the token an interrupted run resumes from:
-// it has to point at the page being yielded, not the one after it.
-func TestListReportsThePageItIsOn(t *testing.T) {
-	server := &bulkServer{total: 25, pageSize: 10}
-	var reported []string
-	opt := grafana.ListOptions{OnPage: func(token string) { reported = append(reported, token) }}
-	collect(t, server.start(t), opt)
-
-	want := []string{"", "10", "20"}
-	if fmt.Sprint(reported) != fmt.Sprint(want) {
-		t.Errorf("reported tokens %v, want %v", reported, want)
-	}
-}
-
 // TestListRetriesAPageThatBreaksMidStream covers a body that stops arriving
 // halfway. The page is decoded as it streams, so the retry has to skip what was
 // already delivered rather than deliver it twice.

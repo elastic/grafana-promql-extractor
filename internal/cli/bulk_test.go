@@ -62,11 +62,6 @@ func TestFallsBackToFetchingOneByOne(t *testing.T) {
 			args:    []string{"--folder-uid", "whatever"},
 			reason:  "listing cannot filter by folder",
 		},
-		"resuming a search run": {
-			options: testsupport.FakeOptions{Dashboards: fixtures, Bulk: true},
-			args:    []string{"--start-page", "2", "--page-size", "5"},
-			reason:  "page numbers belong to the search API",
-		},
 	}
 
 	for name, tc := range cases {
@@ -86,26 +81,6 @@ func TestFallsBackToFetchingOneByOne(t *testing.T) {
 				t.Errorf("no dashboard was fetched one by one, although %s", tc.reason)
 			}
 		})
-	}
-}
-
-// TestStartPageIsNotSilentlyIgnored guards the interaction that would cost
-// dashboards: a run resuming at a later search page must not end up on the bulk
-// path, which knows nothing about page numbers.
-func TestStartPageIsNotSilentlyIgnored(t *testing.T) {
-	dashboards := testsupport.GeneratedFixtures(20)
-	fake := testsupport.NewFakeGrafana(t, testsupport.FakeOptions{Dashboards: dashboards, Bulk: true})
-	out := filepath.Join(t.TempDir(), "queries.txt")
-
-	stderr, err := runCLI(t, "--url", fake.URL, "-o", out, "--compress=false",
-		"--progress", "never", "--bulk", "auto", "--page-size", "10", "--start-page", "2")
-	if err != nil {
-		t.Fatalf("run failed: %v\n%s", err, stderr)
-	}
-
-	lines := readLines(t, out)
-	if got := len(distinctUIDs(lines)); got != 10 {
-		t.Errorf("resumed run covered %d dashboards, want the 10 of the second page", got)
 	}
 }
 
@@ -245,31 +220,5 @@ func TestASampleIsTakenAtItsWord(t *testing.T) {
 	}
 	if !strings.Contains(stderr, "--max-dashboards") {
 		t.Errorf("the run does not say the sample went unchecked:\n%s", stderr)
-	}
-}
-
-// TestContinueTokenResumesAListing covers the recipe an interrupted bulk run
-// prints, including its refusal to fall back to a strategy that would ignore
-// the token and start over.
-func TestContinueTokenResumesAListing(t *testing.T) {
-	dashboards := testsupport.GeneratedFixtures(10)
-	fake := testsupport.NewFakeGrafana(t, testsupport.FakeOptions{
-		Dashboards:   dashboards,
-		Bulk:         true,
-		BulkPageSize: 4,
-	})
-	out := filepath.Join(t.TempDir(), "queries.txt")
-
-	if stderr, err := runCLI(t, "--url", fake.URL, "-o", out, "--compress=false",
-		"--progress", "never", "--continue-token", "8"); err != nil {
-		t.Fatalf("run failed: %v\n%s", err, stderr)
-	}
-	assertSameLines(t, readLines(t, out), testsupport.ExpectedLines(dashboards[8:]))
-
-	plain := testsupport.NewFakeGrafana(t, testsupport.FakeOptions{Dashboards: dashboards})
-	_, err := runCLI(t, "--url", plain.URL, "-o", filepath.Join(t.TempDir(), "queries.txt"),
-		"--compress=false", "--progress", "never", "--continue-token", "8")
-	if err == nil {
-		t.Fatal("a token was accepted against an instance that cannot resume it")
 	}
 }

@@ -148,80 +148,6 @@ func TestSplitsIntoSeveralFiles(t *testing.T) {
 	assertSameLines(t, all, testsupport.ExpectedLines(dashboards))
 }
 
-// TestResumeWithStartPageAndAppend covers the documented recipe for continuing
-// an interrupted run without losing or skipping dashboards.
-func TestResumeWithStartPageAndAppend(t *testing.T) {
-	dashboards := testsupport.GeneratedFixtures(25)
-	fake := testsupport.NewFakeGrafana(t, testsupport.FakeOptions{Dashboards: dashboards})
-	out := filepath.Join(t.TempDir(), "queries.txt")
-
-	// A first run that only gets through the first page.
-	if stderr, err := runCLI(t, "--url", fake.URL, "-o", out, "--compress=false",
-		"--page-size", "10", "--max-dashboards", "10", "--progress", "never"); err != nil {
-		t.Fatalf("first run failed: %v\n%s", err, stderr)
-	}
-	if got := len(distinctUIDs(readLines(t, out))); got != 10 {
-		t.Fatalf("first run covered %d dashboards, want 10", got)
-	}
-
-	// Resuming at the next page appends the rest.
-	if stderr, err := runCLI(t, "--url", fake.URL, "-o", out, "--compress=false",
-		"--page-size", "10", "--start-page", "2", "--append", "--progress", "never"); err != nil {
-		t.Fatalf("resumed run failed: %v\n%s", err, stderr)
-	}
-
-	assertSameLines(t, readLines(t, out), testsupport.ExpectedLines(dashboards))
-}
-
-// TestResumeWithSplitFilesContinuesNumbering covers the same recipe with split
-// output: the resumed run has to number its files after the ones already there,
-// or it would append dashboards to a file a consumer may have processed already.
-func TestResumeWithSplitFilesContinuesNumbering(t *testing.T) {
-	dashboards := testsupport.GeneratedFixtures(25)
-	fake := testsupport.NewFakeGrafana(t, testsupport.FakeOptions{Dashboards: dashboards})
-	dir := t.TempDir()
-	out := filepath.Join(dir, "queries.txt")
-
-	split := []string{"--url", fake.URL, "-o", out, "--compress=false",
-		"--dashboards-per-file", "4", "--page-size", "10", "--progress", "never"}
-
-	// A first run that only gets through the first page fills two files and
-	// leaves the third one half full.
-	if stderr, err := runCLI(t, append(split, "--max-dashboards", "10")...); err != nil {
-		t.Fatalf("first run failed: %v\n%s", err, stderr)
-	}
-	third := filepath.Join(dir, "queries-00003.txt")
-	beforeResume := readLines(t, third)
-	if len(distinctUIDs(beforeResume)) != 2 {
-		t.Fatalf("the first run left %d dashboards in %s, want 2",
-			len(distinctUIDs(beforeResume)), third)
-	}
-
-	if stderr, err := runCLI(t, append(split, "--start-page", "2", "--append")...); err != nil {
-		t.Fatalf("resumed run failed: %v\n%s", err, stderr)
-	}
-
-	if got := readLines(t, third); !slices.Equal(got, beforeResume) {
-		t.Errorf("%s changed from %v to %v", third, beforeResume, got)
-	}
-	var all []string
-	for i := 1; ; i++ {
-		path := filepath.Join(dir, fmt.Sprintf("queries-%05d.txt", i))
-		if _, err := os.Stat(path); err != nil {
-			if i <= 4 {
-				t.Fatalf("the resumed run wrote no %s: %v", path, err)
-			}
-			break
-		}
-		lines := readLines(t, path)
-		if uids := distinctUIDs(lines); len(uids) > 4 {
-			t.Errorf("%s holds %d dashboards, more than the limit of 4", path, len(uids))
-		}
-		all = append(all, lines...)
-	}
-	assertSameLines(t, all, testsupport.ExpectedLines(dashboards))
-}
-
 // TestViewerTokenFallback covers a token that may not read /api/datasources.
 func TestViewerTokenFallback(t *testing.T) {
 	fixtures, err := testsupport.Fixtures()
@@ -299,14 +225,10 @@ func TestFailFastStopsOnFirstError(t *testing.T) {
 	stderr, err := runCLI(t, "--url", fake.URL, "-o", out, "--compress=false",
 		"--concurrency", "1", "--fail-fast", "--progress", "never")
 	if err == nil {
-		t.Fatal("expected the run to fail")
+		t.Fatalf("expected the run to fail:\n%s", stderr)
 	}
 	if !strings.Contains(err.Error(), "gen-0001") {
 		t.Errorf("error should name the dashboard, got %v", err)
-	}
-	// A run cut short by an error is as resumable as an interrupted one.
-	if !strings.Contains(stderr, "--start-page 1 --append") {
-		t.Errorf("summary should say where to resume:\n%s", stderr)
 	}
 }
 
@@ -532,8 +454,6 @@ func TestRejectsInvalidFlags(t *testing.T) {
 		{"--url", "http://localhost", "-o", ""},
 		// A salt without anonymizing is a misunderstanding worth reporting.
 		{"--url", "http://localhost", "--anonymize-salt", "x"},
-		// Appending with a random salt would mix two sets of pseudonyms.
-		{"--url", "http://localhost", "--anonymize", "--append"},
 	}
 	for _, args := range tests {
 		if _, err := runCLI(t, args...); err == nil {
